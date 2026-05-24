@@ -1,0 +1,65 @@
+name: Bug Report
+description: Something is not working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+        Please fill out the form below as completely as possible.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Provide the exact command you ran (replace any private keys / IPs with placeholders).
+      placeholder: |
+        1. Run `./awg-proxy run -c example.conf -- curl ...`
+        2. See error ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output / logs
+      description: Paste the full terminal output. Run with `-d` flag for verbose logs.
+      render: shell
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "e.g. macOS 14.5 (Apple Silicon)"
+    validations:
+      required: true
+
+  - type: input
+    id: go_version
+    attributes:
+      label: Go version
+      placeholder: "e.g. go1.24.4 darwin/arm64"
+    validations:
+      required: true
+
+  - type: input
+    id: awg_version
+    attributes:
+      label: AmneziaWG config version
+      placeholder: "AWG 1.x or AWG 2.0"
