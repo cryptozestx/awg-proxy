@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/amnezia-vpn/amneziawg-go/conn"
@@ -164,6 +165,24 @@ func main() {
 			fmt.Println("Usage: awg-proxy app -c vpn.conf -a <app_name>")
 			fmt.Println("   or: awg-proxy app -c vpn.conf -- <app_name> [args...]")
 			os.Exit(1)
+		}
+	}
+
+	if configPath == "" {
+		// 1. Check if amnezia.conf exists in the current working directory
+		if _, err := os.Stat("amnezia.conf"); err == nil {
+			configPath = "amnezia.conf"
+			fmt.Println("[awg-proxy] No config specified. Found default: amnezia.conf")
+		} else {
+			// 2. Check if amnezia.conf exists in the executable's directory
+			if execPath, err := os.Executable(); err == nil {
+				execDir := filepath.Dir(execPath)
+				fallbackPath := filepath.Join(execDir, "amnezia.conf")
+				if _, err := os.Stat(fallbackPath); err == nil {
+					configPath = fallbackPath
+					fmt.Printf("[awg-proxy] No config specified. Found default: %s\n", fallbackPath)
+				}
+			}
 		}
 	}
 

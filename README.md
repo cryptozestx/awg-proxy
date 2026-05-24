@@ -144,7 +144,7 @@ Commands:
   server   Run persistent proxies in the foreground
 
 Options:
-  -c, --config       Path to AmneziaWG .conf file  (required)
+  -c, --config       Path to AmneziaWG .conf file  (default: amnezia.conf)
   -a, --app          macOS App name or path to proxy (only for 'app')
   -s, --socks-port   SOCKS5 bind port              (default: auto)
   -h, --http-port    HTTP proxy bind port           (default: auto)
