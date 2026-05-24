@@ -82,6 +82,31 @@ exit
 ./awg-proxy run -c my_vpn.conf -- npm install
 ```
 
+### Launch specific macOS applications (macOS only)
+
+You can launch specific GUI or CLI applications routed entirely through the secure userspace VPN tunnel. Closing the application automatically terminates the tunnel.
+
+```bash
+# Launch Google Chrome with a separate, isolated proxied profile
+./awg-proxy app -c my_vpn.conf -a "Google Chrome"
+
+# Launch Telegram (automatically registers the SOCKS5 proxy in Telegram via URL scheme!)
+./awg-proxy app -c my_vpn.conf -a Telegram
+
+# Launch Spotify with pre-configured proxy flags
+./awg-proxy app -c my_vpn.conf -a Spotify
+
+# Launch Slack, VS Code, Discord, or any other Electron/GUI app with environment variables
+./awg-proxy app -c my_vpn.conf -a Slack
+./awg-proxy app -c my_vpn.conf -- "/Applications/Visual Studio Code.app"
+```
+
+#### How it handles applications:
+1. **Chromium-based Browsers** (`Chrome`, `Brave`, `Edge`, `Arc`): Spawns a dedicated browser window with `--proxy-server` set to your secure tunnel. It uses a **persistent, isolated profile** under `~/.awg-proxy/profiles/` so your secure session runs smoothly side-by-side with your unproxied browser and keeps cookies/logins saved.
+2. **Telegram**: Automatically opens a `tg://socks?server=127.0.0.1&port=<port>` link. Telegram will prompt you to single-click **"Enable"** to route all telegram chats securely.
+3. **Spotify**: Runs the binary with Spotify SOCKS5 CLI arguments appended.
+4. **General Apps** (Slack, Obsidian, Discord, etc.): Automatically locates the bundle executable using macOS `plutil`, spawns the process, and injects `ALL_PROXY`, `HTTP_PROXY`, and `HTTPS_PROXY` environment variables.
+
 ### Persistent proxy server
 
 Bind on fixed ports for use with browsers or other apps:
@@ -115,10 +140,12 @@ Usage:
 Commands:
   shell    Start proxies & launch interactive subshell
   run      Start proxies, run one command, then exit
+  app      Start proxies, launch specific macOS app, keep alive until app is closed
   server   Run persistent proxies in the foreground
 
 Options:
   -c, --config       Path to AmneziaWG .conf file  (required)
+  -a, --app          macOS App name or path to proxy (only for 'app')
   -s, --socks-port   SOCKS5 bind port              (default: auto)
   -h, --http-port    HTTP proxy bind port           (default: auto)
   -d, --debug        Verbose tunnel debug logging

@@ -27,11 +27,15 @@ func printUsage() {
 	fmt.Println("\x1b[1;36m│\x1b[0m    shell   Start proxies & launch interactive subshell \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m            (default mode if no command specified)      \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    run     Start proxies, run a single command, exit   \x1b[1;36m│\x1b[0m")
+	fmt.Println("\x1b[1;36m│\x1b[0m    app     Start proxies, launch specific macOS app,   \x1b[1;36m│\x1b[0m")
+	fmt.Println("\x1b[1;36m│\x1b[0m            keep alive until app is closed              \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    server  Start persistent proxies in foreground      \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m                                                        \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m  \x1b[1;33mOptions:\x1b[0m                                              \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    -c, --config      Path to AmneziaWG .conf file      \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m                      (required)                        \x1b[1;36m│\x1b[0m")
+	fmt.Println("\x1b[1;36m│\x1b[0m    -a, --app         macOS App name or path to proxy   \x1b[1;36m│\x1b[0m")
+	fmt.Println("\x1b[1;36m│\x1b[0m                      (only for 'app' command)          \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    -s, --socks-port  SOCKS5 port to bind (default: 0,   \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m                      which auto-selects a free port)   \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    -h, --http-port   HTTP proxy port to bind (default: \x1b[1;36m│\x1b[0m")
@@ -41,6 +45,8 @@ func printUsage() {
 	fmt.Println("\x1b[1;36m│\x1b[0m  \x1b[1;33mExamples:\x1b[0m                                             \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    awg-proxy shell -c vpn.conf                         \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    awg-proxy run -c vpn.conf -- curl ipinfo.io/json    \x1b[1;36m│\x1b[0m")
+	fmt.Println("\x1b[1;36m│\x1b[0m    awg-proxy app -c vpn.conf -a \"Google Chrome\"        \x1b[1;36m│\x1b[0m")
+	fmt.Println("\x1b[1;36m│\x1b[0m    awg-proxy app -c vpn.conf -- Telegram               \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    awg-proxy server -c vpn.conf -s 1080 -h 8080        \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m└────────────────────────────────────────────────────────┘\x1b[0m")
 }
@@ -57,7 +63,7 @@ func main() {
 	argsStart := 1
 
 	switch os.Args[1] {
-	case "shell", "run", "server":
+	case "shell", "run", "server", "app":
 		command = os.Args[1]
 		argsStart = 2
 	default:
@@ -77,6 +83,7 @@ func main() {
 	var socksPort int
 	var httpPort int
 	var debug bool
+	var appTarget string
 
 	fs.StringVar(&configPath, "config", "", "Path to AmneziaWG configuration file")
 	fs.StringVar(&configPath, "c", "", "Path to AmneziaWG configuration file (shorthand)")
@@ -86,10 +93,14 @@ func main() {
 	fs.IntVar(&httpPort, "h", 0, "HTTP port to bind (shorthand)")
 	fs.BoolVar(&debug, "debug", false, "Enable verbose debug logs")
 	fs.BoolVar(&debug, "d", false, "Enable verbose debug logs (shorthand)")
+	fs.StringVar(&appTarget, "app", "", "macOS application name or path to proxy")
+	fs.StringVar(&appTarget, "a", "", "macOS application name or path to proxy (shorthand)")
 
 	// Parse custom sub-arguments
 	var commandArgs []string
-	if command == "run" {
+	var appArgs []string
+
+	if command == "run" || command == "app" {
 		// Find "--" separator for execution
 		sepIdx := -1
 		for i := argsStart; i < len(os.Args); i++ {
@@ -98,19 +109,62 @@ func main() {
 				break
 			}
 		}
-		if sepIdx == -1 {
+		if sepIdx != -1 {
+			_ = fs.Parse(os.Args[argsStart:sepIdx])
+			commandArgs = os.Args[sepIdx+1:]
+		} else {
+			_ = fs.Parse(os.Args[argsStart:])
+		}
+	} else {
+		_ = fs.Parse(os.Args[argsStart:])
+	}
+
+	if command == "run" {
+		// For run command, separator '--' is mandatory
+		sepFound := false
+		for i := argsStart; i < len(os.Args); i++ {
+			if os.Args[i] == "--" {
+				sepFound = true
+				break
+			}
+		}
+		if !sepFound {
 			fmt.Println("\x1b[1;31mError: Command 'run' requires '--' followed by the CLI command to run.\x1b[0m")
 			fmt.Println("Example: awg-proxy run -c vpn.conf -- curl ipinfo.io/json")
 			os.Exit(1)
 		}
-		_ = fs.Parse(os.Args[argsStart:sepIdx])
-		commandArgs = os.Args[sepIdx+1:]
 		if len(commandArgs) == 0 {
 			fmt.Println("\x1b[1;31mError: No target command specified after '--'.\x1b[0m")
 			os.Exit(1)
 		}
-	} else {
-		_ = fs.Parse(os.Args[argsStart:])
+	}
+
+	if command == "app" {
+		if len(commandArgs) > 0 {
+			if appTarget == "" {
+				appTarget = commandArgs[0]
+				appArgs = commandArgs[1:]
+			} else {
+				appArgs = commandArgs
+			}
+		} else {
+			leftovers := fs.Args()
+			if appTarget == "" {
+				if len(leftovers) > 0 {
+					appTarget = leftovers[0]
+					appArgs = leftovers[1:]
+				}
+			} else {
+				appArgs = leftovers
+			}
+		}
+
+		if appTarget == "" {
+			fmt.Println("\x1b[1;31mError: Command 'app' requires specifying the application to run.\x1b[0m")
+			fmt.Println("Usage: awg-proxy app -c vpn.conf -a <app_name>")
+			fmt.Println("   or: awg-proxy app -c vpn.conf -- <app_name> [args...]")
+			os.Exit(1)
+		}
 	}
 
 	if configPath == "" {
@@ -217,6 +271,13 @@ func main() {
 		err := RunCommand(commandArgs, socksActualPort, httpActualPort)
 		if err != nil {
 			log.Fatalf("Command returned exit error: %v", err)
+		}
+
+	case "app":
+		// Run a macOS application under the proxy
+		err := RunApp(appTarget, appArgs, socksActualPort, httpActualPort)
+		if err != nil {
+			log.Fatalf("App returned exit error: %v", err)
 		}
 
 	case "shell":
