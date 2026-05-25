@@ -126,6 +126,8 @@ func TestDarwinDNSManagerCleanupRunsAfterApplyContextCanceled(t *testing.T) {
 func TestDarwinDNSManagerCleanupAttemptsAllRestoresAfterFailure(t *testing.T) {
 	runner := newFakeDarwinDNSRunner()
 	runner.failRunAt = 4
+	runner.outputs["networksetup -listallnetworkservices"] = []byte("An asterisk (*) denotes that a network service is disabled.\nWi-Fi\nUSB LAN $(bad) 'quoted'\n")
+	runner.outputs["networksetup -getdnsservers USB LAN $(bad) 'quoted'"] = []byte("9.9.9.9\n149.112.112.112\n")
 	cleanup := NewCleanupStack()
 
 	if err := (DarwinDNSManager{Runner: runner}).Apply(context.Background(), []string{"1.1.1.1"}, cleanup); err != nil {
@@ -136,13 +138,13 @@ func TestDarwinDNSManagerCleanupAttemptsAllRestoresAfterFailure(t *testing.T) {
 	if err == nil {
 		t.Fatalf("cleanup.Run() error = nil, want restore failure")
 	}
-	if !strings.Contains(err.Error(), `manual recovery: networksetup "-setdnsservers" "USB LAN" "9.9.9.9" "149.112.112.112"`) {
+	if !strings.Contains(err.Error(), `manual recovery: networksetup '-setdnsservers' 'USB LAN $(bad) '\''quoted'\''' '9.9.9.9' '149.112.112.112'`) {
 		t.Fatalf("cleanup.Run() error = %v, want manual recovery command", err)
 	}
 
 	wantTail := []string{
 		"networksetup -setdnsservers Wi-Fi Empty",
-		"networksetup -setdnsservers USB LAN 9.9.9.9 149.112.112.112",
+		"networksetup -setdnsservers USB LAN $(bad) 'quoted' 9.9.9.9 149.112.112.112",
 	}
 	gotTail := runner.commands[len(runner.commands)-len(wantTail):]
 	if !reflect.DeepEqual(gotTail, wantTail) {
