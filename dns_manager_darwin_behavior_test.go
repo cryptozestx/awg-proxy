@@ -123,6 +123,33 @@ func TestDarwinDNSManagerCleanupRunsAfterApplyContextCanceled(t *testing.T) {
 	}
 }
 
+func TestDarwinDNSManagerCleanupAttemptsAllRestoresAfterFailure(t *testing.T) {
+	runner := newFakeDarwinDNSRunner()
+	runner.failRunAt = 3
+	cleanup := NewCleanupStack()
+
+	if err := (DarwinDNSManager{Runner: runner}).Apply(context.Background(), []string{"1.1.1.1"}, cleanup); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+
+	err := cleanup.Run()
+	if err == nil {
+		t.Fatalf("cleanup.Run() error = nil, want restore failure")
+	}
+	if !strings.Contains(err.Error(), "manual recovery: networksetup -setdnsservers Wi-Fi Empty") {
+		t.Fatalf("cleanup.Run() error = %v, want manual recovery command", err)
+	}
+
+	wantTail := []string{
+		"networksetup -setdnsservers Wi-Fi Empty",
+		"networksetup -setdnsservers USB LAN 9.9.9.9 149.112.112.112",
+	}
+	gotTail := runner.commands[len(runner.commands)-len(wantTail):]
+	if !reflect.DeepEqual(gotTail, wantTail) {
+		t.Fatalf("cleanup commands = %v, want %v", gotTail, wantTail)
+	}
+}
+
 func newFakeDarwinDNSRunner() *fakeDNSCommandRunner {
 	return &fakeDNSCommandRunner{
 		outputs: map[string][]byte{

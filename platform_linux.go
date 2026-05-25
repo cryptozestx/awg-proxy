@@ -9,3 +9,7 @@ func NewPlatformRouteManager(runner CommandRunner) RouteManager {
 func NewPlatformDNSManager(runner CommandRunner) DNSManager {
 	return LinuxDNSManager{}
 }
+
+func defaultTunnelName() string {
+	return "awgproxy0"
+}

@@ -9,3 +9,7 @@ func NewPlatformRouteManager(runner CommandRunner) RouteManager {
 func NewPlatformDNSManager(runner CommandRunner) DNSManager {
 	return DarwinDNSManager{Runner: runner}
 }
+
+func defaultTunnelName() string {
+	return "utun"
+}

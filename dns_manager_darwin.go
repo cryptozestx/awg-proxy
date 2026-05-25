@@ -4,7 +4,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 )
 
 type DarwinDNSManager struct {
@@ -29,6 +31,7 @@ func (m DarwinDNSManager) Apply(ctx context.Context, servers []string, cleanup *
 
 	cleanup.Add("restore DNS servers", func() error {
 		cleanupCtx := context.Background()
+		var errs []error
 		for _, state := range states {
 			args := []string{"-setdnsservers", state.Service}
 			if state.Empty {
@@ -37,10 +40,11 @@ func (m DarwinDNSManager) Apply(ctx context.Context, servers []string, cleanup *
 				args = append(args, state.Servers...)
 			}
 			if err := m.Runner.Run(cleanupCtx, "networksetup", args...); err != nil {
-				return fmt.Errorf("restore DNS servers for service %s: %w", state.Service, err)
+				manual := "networksetup " + strings.Join(args, " ")
+				errs = append(errs, fmt.Errorf("restore DNS servers for service %s; manual recovery: %s: %w", state.Service, manual, err))
 			}
 		}
-		return nil
+		return errors.Join(errs...)
 	})
 
 	for _, service := range services {

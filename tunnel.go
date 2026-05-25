@@ -133,7 +133,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 		}
 	}()
 
-	dev, err := deps.DeviceFactory.Create("awgproxy0", mtu, opts.Verbose)
+	dev, err := deps.DeviceFactory.Create(defaultTunnelName(), mtu, opts.Verbose)
 	if err != nil {
 		return fmt.Errorf("create tunnel device: %w", err)
 	}

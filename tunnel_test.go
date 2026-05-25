@@ -125,8 +125,8 @@ func TestRunTunnelSetupThenCleanup(t *testing.T) {
 		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
 	}
 
-	if factory.name != "awgproxy0" {
-		t.Fatalf("device name = %q, want awgproxy0", factory.name)
+	if factory.name != defaultTunnelName() {
+		t.Fatalf("device name = %q, want %s", factory.name, defaultTunnelName())
 	}
 	if factory.mtu != 1420 {
 		t.Fatalf("device MTU = %d, want 1420", factory.mtu)
