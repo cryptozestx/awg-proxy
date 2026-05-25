@@ -50,7 +50,7 @@ func ValidateTunnelConfig(cfg *AWGConfig) (TunnelConfig, error) {
 	for _, address := range cfg.Interface.Address {
 		prefix, err := netip.ParsePrefix(address)
 		if err != nil {
-			continue
+			return TunnelConfig{}, fmt.Errorf("invalid Interface Address CIDR %q: %w", address, err)
 		}
 		if prefix.Addr().Is4() {
 			return TunnelConfig{

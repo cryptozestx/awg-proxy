@@ -61,6 +61,38 @@ func TestValidateTunnelConfigRejectsMissingIPv4Address(t *testing.T) {
 	}
 }
 
+func TestValidateTunnelConfigRejectsMalformedAddressWithValidIPv4Present(t *testing.T) {
+	cfg := validTunnelConfig()
+	cfg.Interface.Address = []string{"bad", "10.8.0.2/32"}
+
+	_, err := ValidateTunnelConfig(cfg)
+	if err == nil {
+		t.Fatalf("ValidateTunnelConfig succeeded, want error")
+	}
+	if !strings.Contains(err.Error(), "invalid Interface Address CIDR") {
+		t.Fatalf("error = %q, want invalid Interface Address CIDR", err)
+	}
+	if !strings.Contains(err.Error(), "bad") {
+		t.Fatalf("error = %q, want offending value", err)
+	}
+}
+
+func TestValidateTunnelConfigRejectsMalformedAddressWithoutValidIPv4(t *testing.T) {
+	cfg := validTunnelConfig()
+	cfg.Interface.Address = []string{"bad", "fd00::2/128"}
+
+	_, err := ValidateTunnelConfig(cfg)
+	if err == nil {
+		t.Fatalf("ValidateTunnelConfig succeeded, want error")
+	}
+	if !strings.Contains(err.Error(), "invalid Interface Address CIDR") {
+		t.Fatalf("error = %q, want invalid Interface Address CIDR", err)
+	}
+	if !strings.Contains(err.Error(), "bad") {
+		t.Fatalf("error = %q, want offending value", err)
+	}
+}
+
 func TestCloneConfigWithResolvedEndpointRewritesCloneAndDoesNotMutateOriginal(t *testing.T) {
 	cfg := validTunnelConfig()
 	endpoint := netip.MustParseAddrPort("203.0.113.10:51820")
