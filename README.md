@@ -121,6 +121,18 @@ Then configure your browser / app to use:
 
 Press `Ctrl+C` to stop.
 
+### Transparent system tunnel
+
+`tunnel` creates a native TUN interface and routes IPv4 system traffic through AmneziaWG. It requires elevated privileges because it changes system routes and DNS.
+
+```bash
+sudo ./awg-proxy tunnel -c my_vpn.conf --dry-run
+sudo ./awg-proxy tunnel -c my_vpn.conf
+sudo ./awg-proxy tunnel -c my_vpn.conf --no-dns
+```
+
+The tunnel mode resolves the peer endpoint before changing routes, rewrites the device endpoint to the resolved IPv4 address, adds a host bypass route for that endpoint, then adds `0.0.0.0/1` and `128.0.0.0/1` through the TUN interface. DNS from `[Interface] DNS` is applied by default and must contain IP address entries. Use `--no-dns` only when you accept existing DNS behavior.
+
 ---
 
 ## Configuration
@@ -142,6 +154,7 @@ Commands:
   run      Start proxies, run one command, then exit
   app      Start proxies, launch specific macOS app, keep alive until app is closed
   server   Run persistent proxies in the foreground
+  tunnel   Route system traffic via native TUN
 
 Options:
   -c, --config       Path to AmneziaWG .conf file  (default: amnezia.conf)
@@ -149,6 +162,8 @@ Options:
   -s, --socks-port   SOCKS5 bind port              (default: auto)
   -h, --http-port    HTTP proxy bind port           (default: auto)
   -d, --debug        Verbose tunnel debug logging
+  --dry-run          Print tunnel changes without applying them
+  --no-dns           Do not change system DNS in tunnel mode
 ```
 
 ---
@@ -156,7 +171,7 @@ Options:
 ## Security notes
 
 - Private keys never leave your machine — the tunnel is established locally.
-- Only the traffic you explicitly route through the proxy (`shell`, `run`) or applications you configure (`server`) uses the VPN. System-wide routing is untouched.
+- Proxy modes (`shell`, `run`, `app`, `server`) do not change system routing. `tunnel` is the explicit privileged mode that routes system IPv4 traffic and may change DNS.
 - Do not share or commit your `.conf` file.
 
 ---

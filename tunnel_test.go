@@ -47,8 +47,9 @@ func (f *fakeTunnelDeviceFactory) Create(name string, mtu int, verbose bool) (Tu
 }
 
 type fakeRouteManager struct {
-	calls    []string
-	applyErr error
+	calls      []string
+	defaultErr error
+	applyErr   error
 }
 
 func (m *fakeRouteManager) ConfigureInterface(ctx context.Context, ifName string, addr netip.Prefix, mtu int) error {
@@ -57,6 +58,9 @@ func (m *fakeRouteManager) ConfigureInterface(ctx context.Context, ifName string
 }
 
 func (m *fakeRouteManager) DefaultRoute(ctx context.Context) (DefaultRoute, error) {
+	if m.defaultErr != nil {
+		return DefaultRoute{}, m.defaultErr
+	}
 	return DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"}, ctx.Err()
 }
 
@@ -178,6 +182,53 @@ func TestRunTunnelDryRunSkipsInjectedDeviceFactory(t *testing.T) {
 	wantRouteCalls := []string{"configure:awgproxy0:10.8.0.2/32", "routes:awgproxy0", "cleanup-routes"}
 	if !reflect.DeepEqual(routes.calls, wantRouteCalls) {
 		t.Fatalf("route calls = %#v, want %#v", routes.calls, wantRouteCalls)
+	}
+	if len(dns.calls) != 0 {
+		t.Fatalf("dry-run called injected DNS manager: %#v", dns.calls)
+	}
+}
+
+func TestRunTunnelDryRunExitsWithoutWaiting(t *testing.T) {
+	dev := &fakeTunnelDevice{name: "utun99"}
+	routes := &fakeRouteManager{}
+	dns := &fakeDNSManager{}
+	deps := fakeTunnelDeps(dev, routes, dns)
+	waitErr := errors.New("wait called")
+	deps.Wait = func(context.Context) error {
+		return waitErr
+	}
+
+	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{DryRun: true}, deps)
+	if errors.Is(err, waitErr) {
+		t.Fatalf("dry-run waited for signal: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+	}
+}
+
+func TestDryRunRouteManagerFallsBackWhenDefaultRouteDiscoveryFails(t *testing.T) {
+	discoveryErr := errors.New("route discovery failed")
+	routes := &fakeRouteManager{defaultErr: discoveryErr}
+	recorder := NewDryRunRunner()
+	fallback := DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.254"), Device: "default0"}
+	manager := dryRunRouteManager{
+		RouteManager: routes,
+		Recorder:     recorder,
+		Fallback:     fallback,
+	}
+
+	got, err := manager.DefaultRoute(context.Background())
+	if err != nil {
+		t.Fatalf("DefaultRoute returned error: %v", err)
+	}
+	if got != fallback {
+		t.Fatalf("DefaultRoute = %#v, want %#v", got, fallback)
+	}
+
+	want := []string{"default route discovery failed: route discovery failed; using dry-run placeholder gateway 192.0.2.254 dev default0"}
+	if !reflect.DeepEqual(recorder.Commands(), want) {
+		t.Fatalf("recorded commands = %#v, want %#v", recorder.Commands(), want)
 	}
 }
 
