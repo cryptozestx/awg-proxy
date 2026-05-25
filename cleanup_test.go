@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -60,8 +61,19 @@ func TestCleanupStackAggregatesErrors(t *testing.T) {
 	stack.Add("route", func() error {
 		return errors.New("route delete failed")
 	})
+	stack.Add("dns", func() error {
+		return errors.New("dns restore failed")
+	})
 
-	if err := stack.Run(); err == nil {
+	err := stack.Run()
+	if err == nil {
 		t.Fatal("Run() error = nil, want non-nil")
+	}
+
+	errText := err.Error()
+	for _, want := range []string{"route delete failed", "dns restore failed"} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("Run() error = %q, want it to contain %q", errText, want)
+		}
 	}
 }
