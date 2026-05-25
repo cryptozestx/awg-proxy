@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -40,7 +41,7 @@ func (m DarwinDNSManager) Apply(ctx context.Context, servers []string, cleanup *
 				args = append(args, state.Servers...)
 			}
 			if err := m.Runner.Run(cleanupCtx, "networksetup", args...); err != nil {
-				manual := "networksetup " + strings.Join(args, " ")
+				manual := "networksetup " + shellQuoteArgs(args)
 				errs = append(errs, fmt.Errorf("restore DNS servers for service %s; manual recovery: %s: %w", state.Service, manual, err))
 			}
 		}
@@ -55,4 +56,12 @@ func (m DarwinDNSManager) Apply(ctx context.Context, servers []string, cleanup *
 	}
 
 	return nil
+}
+
+func shellQuoteArgs(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, strconv.Quote(arg))
+	}
+	return strings.Join(quoted, " ")
 }

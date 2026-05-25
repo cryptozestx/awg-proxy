@@ -125,7 +125,7 @@ func TestDarwinDNSManagerCleanupRunsAfterApplyContextCanceled(t *testing.T) {
 
 func TestDarwinDNSManagerCleanupAttemptsAllRestoresAfterFailure(t *testing.T) {
 	runner := newFakeDarwinDNSRunner()
-	runner.failRunAt = 3
+	runner.failRunAt = 4
 	cleanup := NewCleanupStack()
 
 	if err := (DarwinDNSManager{Runner: runner}).Apply(context.Background(), []string{"1.1.1.1"}, cleanup); err != nil {
@@ -136,7 +136,7 @@ func TestDarwinDNSManagerCleanupAttemptsAllRestoresAfterFailure(t *testing.T) {
 	if err == nil {
 		t.Fatalf("cleanup.Run() error = nil, want restore failure")
 	}
-	if !strings.Contains(err.Error(), "manual recovery: networksetup -setdnsservers Wi-Fi Empty") {
+	if !strings.Contains(err.Error(), `manual recovery: networksetup "-setdnsservers" "USB LAN" "9.9.9.9" "149.112.112.112"`) {
 		t.Fatalf("cleanup.Run() error = %v, want manual recovery command", err)
 	}
 
