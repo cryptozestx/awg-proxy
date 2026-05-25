@@ -27,14 +27,8 @@ func (m DarwinDNSManager) Apply(ctx context.Context, servers []string, cleanup *
 		states = append(states, parseDarwinDNSState(service, string(out)))
 	}
 
-	for _, service := range services {
-		args := append([]string{"-setdnsservers", service}, servers...)
-		if err := m.Runner.Run(ctx, "networksetup", args...); err != nil {
-			return fmt.Errorf("set DNS servers for service %s: %w", service, err)
-		}
-	}
-
 	cleanup.Add("restore DNS servers", func() error {
+		cleanupCtx := context.Background()
 		for _, state := range states {
 			args := []string{"-setdnsservers", state.Service}
 			if state.Empty {
@@ -42,12 +36,19 @@ func (m DarwinDNSManager) Apply(ctx context.Context, servers []string, cleanup *
 			} else {
 				args = append(args, state.Servers...)
 			}
-			if err := m.Runner.Run(ctx, "networksetup", args...); err != nil {
+			if err := m.Runner.Run(cleanupCtx, "networksetup", args...); err != nil {
 				return fmt.Errorf("restore DNS servers for service %s: %w", state.Service, err)
 			}
 		}
 		return nil
 	})
+
+	for _, service := range services {
+		args := append([]string{"-setdnsservers", service}, servers...)
+		if err := m.Runner.Run(ctx, "networksetup", args...); err != nil {
+			return fmt.Errorf("set DNS servers for service %s: %w", service, err)
+		}
+	}
 
 	return nil
 }
