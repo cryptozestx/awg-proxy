@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseCLIRecognizesTunnel(t *testing.T) {
 	opts, err := parseCLI([]string{"awg-proxy", "tunnel", "-c", "amnezia.conf", "--dry-run", "--no-dns", "--verbose"})
@@ -38,5 +42,36 @@ func TestParseCLIRunRequiresSeparatorAndCommand(t *testing.T) {
 	_, err := parseCLI([]string{"awg-proxy", "run", "-c", "amnezia.conf"})
 	if err == nil {
 		t.Fatalf("parseCLI succeeded, want error")
+	}
+}
+
+func TestParseCLIResolvesDefaultConfigForTunnel(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(wd); err != nil {
+			t.Fatalf("os.Chdir restore returned error: %v", err)
+		}
+	})
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "amnezia.conf"), []byte("[Interface]\n"), 0644); err != nil {
+		t.Fatalf("os.WriteFile returned error: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("os.Chdir returned error: %v", err)
+	}
+
+	opts, err := parseCLI([]string{"awg-proxy", "tunnel"})
+	if err != nil {
+		t.Fatalf("parseCLI returned error: %v", err)
+	}
+	if opts.ConfigPath != "amnezia.conf" {
+		t.Fatalf("ConfigPath = %q, want amnezia.conf", opts.ConfigPath)
+	}
+	if opts.Tunnel.ConfigPath != "amnezia.conf" {
+		t.Fatalf("Tunnel.ConfigPath = %q, want amnezia.conf", opts.Tunnel.ConfigPath)
 	}
 }

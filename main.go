@@ -61,13 +61,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	explicitConfigPath := opts.ConfigPath
-	opts.ConfigPath = resolveDefaultConfigPath(opts.ConfigPath)
-	opts.Tunnel.ConfigPath = opts.ConfigPath
-	if explicitConfigPath == "" && opts.ConfigPath != "" {
-		fmt.Printf("[awg-proxy] No config specified. Found default: %s\n", opts.ConfigPath)
-	}
-
 	if opts.ConfigPath == "" {
 		fmt.Println("\x1b[1;31mError: Configuration file path is required.\x1b[0m")
 		printUsage()

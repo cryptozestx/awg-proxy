@@ -111,6 +111,7 @@ func parseCLI(args []string) (CLIOptions, error) {
 		}
 	}
 
+	opts.ConfigPath = resolveDefaultConfigPath(opts.ConfigPath)
 	opts.Tunnel.ConfigPath = opts.ConfigPath
 	return opts, nil
 }
