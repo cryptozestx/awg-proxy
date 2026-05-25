@@ -100,15 +100,25 @@ func fakeTunnelDeps(dev *fakeTunnelDevice, routes *fakeRouteManager, dns *fakeDN
 
 func TestRunTunnelSetupThenCleanup(t *testing.T) {
 	dev := &fakeTunnelDevice{name: "utun99"}
+	factory := &fakeTunnelDeviceFactory{dev: dev}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
 	deps := fakeTunnelDeps(dev, routes, dns)
+	deps.DeviceFactory = factory
+	cfg := validTunnelConfig()
+	cfg.Interface.MTU = -1
 
-	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{ConfigPath: "amnezia.conf"}, deps)
+	err := RunTunnelWithDeps(context.Background(), cfg, TunnelOptions{ConfigPath: "amnezia.conf"}, deps)
 	if err != nil {
 		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
 	}
 
+	if factory.name != "awgproxy0" {
+		t.Fatalf("device name = %q, want awgproxy0", factory.name)
+	}
+	if factory.mtu != 1420 {
+		t.Fatalf("device MTU = %d, want 1420", factory.mtu)
+	}
 	if !dev.closed {
 		t.Fatalf("device was not closed")
 	}

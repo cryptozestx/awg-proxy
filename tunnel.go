@@ -66,7 +66,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 	}
 
 	mtu := cfg.Interface.MTU
-	if mtu == 0 {
+	if mtu <= 0 {
 		mtu = 1420
 	}
 
