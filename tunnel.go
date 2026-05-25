@@ -258,27 +258,69 @@ type dryRunRouteManager struct {
 }
 
 func (m dryRunRouteManager) ConfigureInterface(ctx context.Context, ifName string, addr netip.Prefix, mtu int) error {
-	return m.RouteManager.ConfigureInterface(ctx, ifName, addr, mtu)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if m.Recorder != nil {
+		m.Recorder.RecordDryRun(fmt.Sprintf("configure interface %s address %s mtu %d up", ifName, addr, mtu))
+	}
+	return nil
 }
 
 func (m dryRunRouteManager) DefaultRoute(ctx context.Context) (DefaultRoute, error) {
+	if m.RouteManager == nil {
+		return m.defaultRouteFallback(nil), nil
+	}
+
 	route, err := m.RouteManager.DefaultRoute(ctx)
 	if err == nil {
 		return route, nil
 	}
 
+	return m.defaultRouteFallback(err), nil
+}
+
+func (m dryRunRouteManager) defaultRouteFallback(discoveryErr error) DefaultRoute {
 	fallback := m.Fallback
 	if !fallback.Gateway.IsValid() || fallback.Device == "" {
 		fallback = dryRunDefaultRouteFallback()
 	}
-	if m.Recorder != nil {
-		m.Recorder.RecordDryRun(fmt.Sprintf("default route discovery failed: %v; using dry-run placeholder gateway %s dev %s", err, fallback.Gateway, fallback.Device))
+	if m.Recorder != nil && discoveryErr != nil {
+		m.Recorder.RecordDryRun(fmt.Sprintf("default route discovery failed: %v; using dry-run placeholder gateway %s dev %s", discoveryErr, fallback.Gateway, fallback.Device))
 	}
-	return fallback, nil
+	return fallback
 }
 
 func (m dryRunRouteManager) Apply(ctx context.Context, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error {
-	return m.RouteManager.Apply(ctx, ifName, plan, defaultRoute, cleanup)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	endpointIP := plan.EndpointBypass.Addr().String()
+	if m.Recorder != nil {
+		m.Recorder.RecordDryRun(fmt.Sprintf("add endpoint bypass route %s via %s dev %s", endpointIP, defaultRoute.Gateway, defaultRoute.Device))
+	}
+	cleanup.Add("delete endpoint bypass route", func() error {
+		if m.Recorder != nil {
+			m.Recorder.RecordDryRun("delete endpoint bypass route " + endpointIP)
+		}
+		return nil
+	})
+
+	for _, cidr := range plan.TunnelCIDRs {
+		cidrText := cidr.String()
+		if m.Recorder != nil {
+			m.Recorder.RecordDryRun(fmt.Sprintf("add tunnel route %s via interface %s", cidrText, ifName))
+		}
+		cleanup.Add("delete tunnel route "+cidrText, func() error {
+			if m.Recorder != nil {
+				m.Recorder.RecordDryRun("delete tunnel route " + cidrText)
+			}
+			return nil
+		})
+	}
+
+	return nil
 }
 
 func dryRunDefaultRouteFallback() DefaultRoute {

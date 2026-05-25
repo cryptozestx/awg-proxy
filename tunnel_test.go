@@ -48,6 +48,7 @@ func (f *fakeTunnelDeviceFactory) Create(name string, mtu int, verbose bool) (Tu
 
 type fakeRouteManager struct {
 	calls      []string
+	defaults   int
 	defaultErr error
 	applyErr   error
 }
@@ -58,6 +59,7 @@ func (m *fakeRouteManager) ConfigureInterface(ctx context.Context, ifName string
 }
 
 func (m *fakeRouteManager) DefaultRoute(ctx context.Context) (DefaultRoute, error) {
+	m.defaults++
 	if m.defaultErr != nil {
 		return DefaultRoute{}, m.defaultErr
 	}
@@ -179,9 +181,11 @@ func TestRunTunnelDryRunSkipsInjectedDeviceFactory(t *testing.T) {
 	if dev.upUAPI != "" {
 		t.Fatalf("dry-run called Up on injected device")
 	}
-	wantRouteCalls := []string{"configure:awgproxy0:10.8.0.2/32", "routes:awgproxy0", "cleanup-routes"}
-	if !reflect.DeepEqual(routes.calls, wantRouteCalls) {
-		t.Fatalf("route calls = %#v, want %#v", routes.calls, wantRouteCalls)
+	if len(routes.calls) != 0 {
+		t.Fatalf("dry-run called mutating route methods: %#v", routes.calls)
+	}
+	if routes.defaults != 1 {
+		t.Fatalf("dry-run default route discovery calls = %d, want 1", routes.defaults)
 	}
 	if len(dns.calls) != 0 {
 		t.Fatalf("dry-run called injected DNS manager: %#v", dns.calls)
