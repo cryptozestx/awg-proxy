@@ -47,19 +47,24 @@ func ValidateTunnelConfig(cfg *AWGConfig) (TunnelConfig, error) {
 		return TunnelConfig{}, fmt.Errorf("invalid peer Endpoint port %q", portText)
 	}
 
+	var interfaceIPv4 netip.Prefix
 	for _, address := range cfg.Interface.Address {
 		prefix, err := netip.ParsePrefix(address)
 		if err != nil {
 			return TunnelConfig{}, fmt.Errorf("invalid Interface Address CIDR %q: %w", address, err)
 		}
-		if prefix.Addr().Is4() {
-			return TunnelConfig{
-				InterfaceIPv4: prefix,
-				PeerIndex:     peerIndex,
-				EndpointHost:  host,
-				EndpointPort:  uint16(port),
-			}, nil
+		if !interfaceIPv4.IsValid() && prefix.Addr().Is4() {
+			interfaceIPv4 = prefix
 		}
+	}
+
+	if interfaceIPv4.IsValid() {
+		return TunnelConfig{
+			InterfaceIPv4: interfaceIPv4,
+			PeerIndex:     peerIndex,
+			EndpointHost:  host,
+			EndpointPort:  uint16(port),
+		}, nil
 	}
 
 	return TunnelConfig{}, fmt.Errorf("interface Address must include an IPv4 CIDR")
