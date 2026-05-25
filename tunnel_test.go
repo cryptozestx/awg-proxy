@@ -5,13 +5,15 @@ import (
 	"errors"
 	"net/netip"
 	"reflect"
+	"strings"
 	"testing"
 )
 
 type fakeTunnelDevice struct {
-	name   string
-	closed bool
-	upUAPI string
+	name     string
+	closed   bool
+	upUAPI   string
+	closeErr error
 }
 
 func (d *fakeTunnelDevice) Name() string {
@@ -25,7 +27,7 @@ func (d *fakeTunnelDevice) Up(uapi string) error {
 
 func (d *fakeTunnelDevice) Close() error {
 	d.closed = true
-	return nil
+	return d.closeErr
 }
 
 type fakeTunnelDeviceFactory struct {
@@ -33,9 +35,11 @@ type fakeTunnelDeviceFactory struct {
 	name    string
 	mtu     int
 	verbose bool
+	called  bool
 }
 
 func (f *fakeTunnelDeviceFactory) Create(name string, mtu int, verbose bool) (TunnelDevice, error) {
+	f.called = true
 	f.name = name
 	f.mtu = mtu
 	f.verbose = verbose
@@ -69,11 +73,13 @@ func (m *fakeRouteManager) Apply(ctx context.Context, ifName string, plan RouteP
 }
 
 type fakeDNSManager struct {
-	calls []string
+	calls   []string
+	servers []string
 }
 
 func (m *fakeDNSManager) Apply(ctx context.Context, servers []string, cleanup *CleanupStack) error {
 	m.calls = append(m.calls, "dns")
+	m.servers = append([]string(nil), servers...)
 	cleanup.Add("dns", func() error {
 		m.calls = append(m.calls, "cleanup-dns")
 		return nil
@@ -150,6 +156,31 @@ func TestRunTunnelNoDNSSkipsDNSManager(t *testing.T) {
 	}
 }
 
+func TestRunTunnelDryRunSkipsInjectedDeviceFactory(t *testing.T) {
+	dev := &fakeTunnelDevice{name: "utun99"}
+	factory := &fakeTunnelDeviceFactory{dev: dev}
+	routes := &fakeRouteManager{}
+	dns := &fakeDNSManager{}
+	deps := fakeTunnelDeps(dev, routes, dns)
+	deps.DeviceFactory = factory
+
+	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{DryRun: true}, deps)
+	if err != nil {
+		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+	}
+
+	if factory.called {
+		t.Fatalf("dry-run called the injected device factory")
+	}
+	if dev.upUAPI != "" {
+		t.Fatalf("dry-run called Up on injected device")
+	}
+	wantRouteCalls := []string{"configure:awgproxy0:10.8.0.2/32", "routes:awgproxy0", "cleanup-routes"}
+	if !reflect.DeepEqual(routes.calls, wantRouteCalls) {
+		t.Fatalf("route calls = %#v, want %#v", routes.calls, wantRouteCalls)
+	}
+}
+
 func TestRunTunnelRouteApplyFailureRunsCleanup(t *testing.T) {
 	dev := &fakeTunnelDevice{name: "utun99"}
 	routeErr := errors.New("route apply failed")
@@ -168,6 +199,47 @@ func TestRunTunnelRouteApplyFailureRunsCleanup(t *testing.T) {
 	wantRouteCalls := []string{"configure:utun99:10.8.0.2/32", "routes:utun99", "cleanup-routes"}
 	if !reflect.DeepEqual(routes.calls, wantRouteCalls) {
 		t.Fatalf("route calls = %#v, want %#v", routes.calls, wantRouteCalls)
+	}
+	if len(dns.calls) != 0 {
+		t.Fatalf("DNS calls = %#v, want none", dns.calls)
+	}
+}
+
+func TestRunTunnelReturnsCleanupError(t *testing.T) {
+	closeErr := errors.New("close failed")
+	dev := &fakeTunnelDevice{name: "utun99", closeErr: closeErr}
+	routes := &fakeRouteManager{}
+	dns := &fakeDNSManager{}
+	deps := fakeTunnelDeps(dev, routes, dns)
+
+	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{}, deps)
+	if !errors.Is(err, closeErr) {
+		t.Fatalf("RunTunnelWithDeps error = %v, want cleanup error %v", err, closeErr)
+	}
+}
+
+func TestRunTunnelRejectsEmptyDNSBeforeDeviceCreation(t *testing.T) {
+	dev := &fakeTunnelDevice{name: "utun99"}
+	factory := &fakeTunnelDeviceFactory{dev: dev}
+	routes := &fakeRouteManager{}
+	dns := &fakeDNSManager{}
+	deps := fakeTunnelDeps(dev, routes, dns)
+	deps.DeviceFactory = factory
+	cfg := validTunnelConfig()
+	cfg.Interface.DNS = nil
+
+	err := RunTunnelWithDeps(context.Background(), cfg, TunnelOptions{}, deps)
+	if err == nil {
+		t.Fatalf("RunTunnelWithDeps succeeded, want error")
+	}
+	if !strings.Contains(err.Error(), "tunnel DNS is empty") {
+		t.Fatalf("RunTunnelWithDeps error = %v, want empty DNS error", err)
+	}
+	if factory.called {
+		t.Fatalf("device factory called before DNS validation completed")
+	}
+	if len(routes.calls) != 0 {
+		t.Fatalf("route calls = %#v, want none", routes.calls)
 	}
 	if len(dns.calls) != 0 {
 		t.Fatalf("DNS calls = %#v, want none", dns.calls)

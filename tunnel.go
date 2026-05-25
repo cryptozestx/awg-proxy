@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
@@ -21,12 +23,14 @@ type TunnelDeps struct {
 func RunTunnel(cfg *AWGConfig, opts TunnelOptions) error {
 	ctx := context.Background()
 	var runner CommandRunner = ExecRunner{}
+	var deviceFactory TunnelDeviceFactory = AWGTunnelDeviceFactory{}
 	if opts.DryRun {
 		runner = NewDryRunRunner()
+		deviceFactory = dryRunTunnelDeviceFactory{}
 	}
 
 	deps := TunnelDeps{
-		DeviceFactory: AWGTunnelDeviceFactory{},
+		DeviceFactory: deviceFactory,
 		RouteManager:  NewPlatformRouteManager(runner),
 		DNSManager:    NewPlatformDNSManager(runner),
 		Lookup:        netipLookup,
@@ -35,11 +39,13 @@ func RunTunnel(cfg *AWGConfig, opts TunnelOptions) error {
 	return RunTunnelWithDeps(ctx, cfg, opts, deps)
 }
 
-func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, deps TunnelDeps) error {
+func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, deps TunnelDeps) (retErr error) {
 	if ctx == nil {
 		return fmt.Errorf("tunnel context is nil")
 	}
-	if deps.DeviceFactory == nil {
+	if opts.DryRun {
+		deps.DeviceFactory = dryRunTunnelDeviceFactory{}
+	} else if deps.DeviceFactory == nil {
 		return fmt.Errorf("tunnel dependency DeviceFactory is nil")
 	}
 	if deps.RouteManager == nil {
@@ -65,6 +71,14 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 		return err
 	}
 
+	dnsServers := cfg.Interface.DNS
+	if !opts.NoDNS {
+		dnsServers, err = tunnelDNSServers(cfg.Interface.DNS)
+		if err != nil {
+			return err
+		}
+	}
+
 	mtu := cfg.Interface.MTU
 	if mtu <= 0 {
 		mtu = 1420
@@ -74,6 +88,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 	defer func() {
 		if err := cleanup.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "cleanup failed: %v\n", err)
+			retErr = errors.Join(retErr, err)
 		}
 	}()
 
@@ -106,7 +121,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 	}
 
 	if !opts.NoDNS {
-		if err := deps.DNSManager.Apply(ctx, cfg.Interface.DNS, cleanup); err != nil {
+		if err := deps.DNSManager.Apply(ctx, dnsServers, cleanup); err != nil {
 			return err
 		}
 	}
@@ -129,4 +144,46 @@ func waitForSignal(ctx context.Context) error {
 
 func netipLookup(host string) ([]netip.Addr, error) {
 	return net.DefaultResolver.LookupNetIP(context.Background(), "ip", host)
+}
+
+func tunnelDNSServers(servers []string) ([]string, error) {
+	if len(servers) == 0 {
+		return nil, fmt.Errorf("tunnel DNS is empty; set [Interface] DNS or use --no-dns")
+	}
+
+	result := make([]string, 0, len(servers))
+	for _, server := range servers {
+		server = strings.TrimSpace(server)
+		if server == "" {
+			return nil, fmt.Errorf("tunnel DNS contains an empty server; set [Interface] DNS or use --no-dns")
+		}
+		if _, err := netip.ParseAddr(server); err != nil {
+			return nil, fmt.Errorf("invalid tunnel DNS server %q: %w", server, err)
+		}
+		result = append(result, server)
+	}
+
+	return result, nil
+}
+
+type dryRunTunnelDeviceFactory struct{}
+
+func (dryRunTunnelDeviceFactory) Create(name string, _ int, _ bool) (TunnelDevice, error) {
+	return dryRunTunnelDevice{name: name}, nil
+}
+
+type dryRunTunnelDevice struct {
+	name string
+}
+
+func (d dryRunTunnelDevice) Name() string {
+	return d.name
+}
+
+func (dryRunTunnelDevice) Up(string) error {
+	return nil
+}
+
+func (dryRunTunnelDevice) Close() error {
+	return nil
 }
