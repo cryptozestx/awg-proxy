@@ -1,13 +1,11 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"net/netip"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/amnezia-vpn/amneziawg-go/conn"
@@ -31,6 +29,7 @@ func printUsage() {
 	fmt.Println("\x1b[1;36m│\x1b[0m    app     Start proxies, launch specific macOS app,   \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m            keep alive until app is closed              \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    server  Start persistent proxies in foreground      \x1b[1;36m│\x1b[0m")
+	fmt.Println("\x1b[1;36m│\x1b[0m    tunnel  Start privileged system tunnel mode         \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m                                                        \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m  \x1b[1;33mOptions:\x1b[0m                                              \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    -c, --config      Path to AmneziaWG .conf file      \x1b[1;36m│\x1b[0m")
@@ -55,150 +54,44 @@ func printUsage() {
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	if len(os.Args) < 2 {
+	opts, err := parseCLI(os.Args)
+	if err != nil {
+		fmt.Printf("\x1b[1;31mError: %v\x1b[0m\n\n", err)
 		printUsage()
 		os.Exit(1)
 	}
 
-	command := ""
-	argsStart := 1
-
-	switch os.Args[1] {
-	case "shell", "run", "server", "app":
-		command = os.Args[1]
-		argsStart = 2
-	default:
-		// Check if first arg is a flag. If so, default command to "shell"
-		if os.Args[1][0] == '-' {
-			command = "shell"
-		} else {
-			fmt.Printf("\x1b[1;31mUnknown command: %s\x1b[0m\n\n", os.Args[1])
-			printUsage()
-			os.Exit(1)
-		}
+	explicitConfigPath := opts.ConfigPath
+	opts.ConfigPath = resolveDefaultConfigPath(opts.ConfigPath)
+	opts.Tunnel.ConfigPath = opts.ConfigPath
+	if explicitConfigPath == "" && opts.ConfigPath != "" {
+		fmt.Printf("[awg-proxy] No config specified. Found default: %s\n", opts.ConfigPath)
 	}
 
-	// Setup custom FlagSet for parsing
-	fs := flag.NewFlagSet("awg-proxy", flag.ExitOnError)
-	var configPath string
-	var socksPort int
-	var httpPort int
-	var debug bool
-	var appTarget string
-
-	fs.StringVar(&configPath, "config", "", "Path to AmneziaWG configuration file")
-	fs.StringVar(&configPath, "c", "", "Path to AmneziaWG configuration file (shorthand)")
-	fs.IntVar(&socksPort, "socks-port", 0, "SOCKS5 port to bind (default: 0 - auto select)")
-	fs.IntVar(&socksPort, "s", 0, "SOCKS5 port to bind (shorthand)")
-	fs.IntVar(&httpPort, "http-port", 0, "HTTP port to bind (default: 0 - auto select)")
-	fs.IntVar(&httpPort, "h", 0, "HTTP port to bind (shorthand)")
-	fs.BoolVar(&debug, "debug", false, "Enable verbose debug logs")
-	fs.BoolVar(&debug, "d", false, "Enable verbose debug logs (shorthand)")
-	fs.StringVar(&appTarget, "app", "", "macOS application name or path to proxy")
-	fs.StringVar(&appTarget, "a", "", "macOS application name or path to proxy (shorthand)")
-
-	// Parse custom sub-arguments
-	var commandArgs []string
-	var appArgs []string
-
-	if command == "run" || command == "app" {
-		// Find "--" separator for execution
-		sepIdx := -1
-		for i := argsStart; i < len(os.Args); i++ {
-			if os.Args[i] == "--" {
-				sepIdx = i
-				break
-			}
-		}
-		if sepIdx != -1 {
-			_ = fs.Parse(os.Args[argsStart:sepIdx])
-			commandArgs = os.Args[sepIdx+1:]
-		} else {
-			_ = fs.Parse(os.Args[argsStart:])
-		}
-	} else {
-		_ = fs.Parse(os.Args[argsStart:])
-	}
-
-	if command == "run" {
-		// For run command, separator '--' is mandatory
-		sepFound := false
-		for i := argsStart; i < len(os.Args); i++ {
-			if os.Args[i] == "--" {
-				sepFound = true
-				break
-			}
-		}
-		if !sepFound {
-			fmt.Println("\x1b[1;31mError: Command 'run' requires '--' followed by the CLI command to run.\x1b[0m")
-			fmt.Println("Example: awg-proxy run -c vpn.conf -- curl ipinfo.io/json")
-			os.Exit(1)
-		}
-		if len(commandArgs) == 0 {
-			fmt.Println("\x1b[1;31mError: No target command specified after '--'.\x1b[0m")
-			os.Exit(1)
-		}
-	}
-
-	if command == "app" {
-		if len(commandArgs) > 0 {
-			if appTarget == "" {
-				appTarget = commandArgs[0]
-				appArgs = commandArgs[1:]
-			} else {
-				appArgs = commandArgs
-			}
-		} else {
-			leftovers := fs.Args()
-			if appTarget == "" {
-				if len(leftovers) > 0 {
-					appTarget = leftovers[0]
-					appArgs = leftovers[1:]
-				}
-			} else {
-				appArgs = leftovers
-			}
-		}
-
-		if appTarget == "" {
-			fmt.Println("\x1b[1;31mError: Command 'app' requires specifying the application to run.\x1b[0m")
-			fmt.Println("Usage: awg-proxy app -c vpn.conf -a <app_name>")
-			fmt.Println("   or: awg-proxy app -c vpn.conf -- <app_name> [args...]")
-			os.Exit(1)
-		}
-	}
-
-	if configPath == "" {
-		// 1. Check if amnezia.conf exists in the current working directory
-		if _, err := os.Stat("amnezia.conf"); err == nil {
-			configPath = "amnezia.conf"
-			fmt.Println("[awg-proxy] No config specified. Found default: amnezia.conf")
-		} else {
-			// 2. Check if amnezia.conf exists in the executable's directory
-			if execPath, err := os.Executable(); err == nil {
-				execDir := filepath.Dir(execPath)
-				fallbackPath := filepath.Join(execDir, "amnezia.conf")
-				if _, err := os.Stat(fallbackPath); err == nil {
-					configPath = fallbackPath
-					fmt.Printf("[awg-proxy] No config specified. Found default: %s\n", fallbackPath)
-				}
-			}
-		}
-	}
-
-	if configPath == "" {
+	if opts.ConfigPath == "" {
 		fmt.Println("\x1b[1;31mError: Configuration file path is required.\x1b[0m")
-		fs.Usage()
+		printUsage()
 		os.Exit(1)
 	}
 
 	// 1. Parse AmneziaWG Config
-	fmt.Printf("[awg-proxy] Parsing configuration: %s...\n", configPath)
-	cfg, err := ParseConfig(configPath)
+	fmt.Printf("[awg-proxy] Parsing configuration: %s...\n", opts.ConfigPath)
+	cfg, err := ParseConfig(opts.ConfigPath)
 	if err != nil {
 		log.Fatalf("Configuration parse error: %v", err)
 	}
 
+	if opts.Command == "tunnel" {
+		if err := RunTunnel(cfg, opts.Tunnel); err != nil {
+			log.Fatalf("Tunnel error: %v", err)
+		}
+		return
+	}
+
+	runProxyMode(cfg, opts)
+}
+
+func runProxyMode(cfg *AWGConfig, opts CLIOptions) {
 	// 2. Parse address sets
 	localAddrs, err := parseAddresses(cfg.Interface.Address)
 	if err != nil {
@@ -231,7 +124,7 @@ func main() {
 
 	// 4. Create WireGuard device
 	logLevel := device.LogLevelSilent
-	if debug {
+	if opts.Debug {
 		logLevel = device.LogLevelVerbose
 	}
 	logger := device.NewLogger(logLevel, "[AWG] ")
@@ -254,47 +147,34 @@ func main() {
 	defer dev.Close()
 
 	// 6. Launch proxy servers on top of userspace netstack dialer
-	socksServer, socksActualPort, err := NewSOCKS5Server(socksPort, tnet)
+	socksServer, socksActualPort, err := NewSOCKS5Server(opts.SocksPort, tnet)
 	if err != nil {
 		log.Fatalf("Failed to start SOCKS5 proxy server: %v", err)
 	}
 	defer socksServer.Close()
 	go socksServer.Start()
 
-	httpServer, httpActualPort, err := NewHTTPProxyServer(httpPort, tnet)
+	httpServer, httpActualPort, err := NewHTTPProxyServer(opts.HTTPPort, tnet)
 	if err != nil {
 		log.Fatalf("Failed to start HTTP proxy server: %v", err)
 	}
 	defer httpServer.Close()
 
 	// 7. Route based on command
-	switch command {
+	switch opts.Command {
 	case "server":
-		fmt.Println("\x1b[1;36m┌────────────────────────────────────────────────────────┐\x1b[0m")
-		fmt.Printf("\x1b[1;36m│          🚀  AWG-PROXY SERVER RUNNING IN FG            │\x1b[0m\n")
-		fmt.Println("\x1b[1;36m├────────────────────────────────────────────────────────┤\x1b[0m")
-		fmt.Printf("\x1b[1;36m│\x1b[0m  \x1b[32mSOCKS5 proxy:\x1b[0m     socks5://127.0.0.1:%-19d \x1b[1;36m│\x1b[0m\n", socksActualPort)
-		fmt.Printf("\x1b[1;36m│\x1b[0m  \x1b[32mHTTP/HTTPS proxy:\x1b[0m  http://127.0.0.1:%-21d \x1b[1;36m│\x1b[0m\n", httpActualPort)
-		fmt.Println("\x1b[1;36m├────────────────────────────────────────────────────────┤\x1b[0m")
-		fmt.Println("\x1b[1;36m│\x1b[0m  \x1b[33mPress Ctrl+C to terminate proxy servers.             \x1b[1;36m│\x1b[0m")
-		fmt.Println("\x1b[1;36m└────────────────────────────────────────────────────────┘\x1b[0m")
-
-		// Keep main running until interrupted
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-		<-sigs
-		fmt.Println("\n[awg-proxy] Shutting down proxy servers...")
+		waitForProxyInterrupt(socksActualPort, httpActualPort)
 
 	case "run":
 		// Run a single command under the proxy
-		err := RunCommand(commandArgs, socksActualPort, httpActualPort)
+		err := RunCommand(opts.CommandArgs, socksActualPort, httpActualPort)
 		if err != nil {
 			log.Fatalf("Command returned exit error: %v", err)
 		}
 
 	case "app":
 		// Run a macOS application under the proxy
-		err := RunApp(appTarget, appArgs, socksActualPort, httpActualPort)
+		err := RunApp(opts.AppTarget, opts.AppArgs, socksActualPort, httpActualPort)
 		if err != nil {
 			log.Fatalf("App returned exit error: %v", err)
 		}
@@ -306,4 +186,20 @@ func main() {
 			log.Fatalf("Shell session error: %v", err)
 		}
 	}
+}
+
+func waitForProxyInterrupt(socksActualPort, httpActualPort int) {
+	fmt.Println("\x1b[1;36m┌────────────────────────────────────────────────────────┐\x1b[0m")
+	fmt.Printf("\x1b[1;36m│          🚀  AWG-PROXY SERVER RUNNING IN FG            │\x1b[0m\n")
+	fmt.Println("\x1b[1;36m├────────────────────────────────────────────────────────┤\x1b[0m")
+	fmt.Printf("\x1b[1;36m│\x1b[0m  \x1b[32mSOCKS5 proxy:\x1b[0m     socks5://127.0.0.1:%-19d \x1b[1;36m│\x1b[0m\n", socksActualPort)
+	fmt.Printf("\x1b[1;36m│\x1b[0m  \x1b[32mHTTP/HTTPS proxy:\x1b[0m  http://127.0.0.1:%-21d \x1b[1;36m│\x1b[0m\n", httpActualPort)
+	fmt.Println("\x1b[1;36m├────────────────────────────────────────────────────────┤\x1b[0m")
+	fmt.Println("\x1b[1;36m│\x1b[0m  \x1b[33mPress Ctrl+C to terminate proxy servers.             \x1b[1;36m│\x1b[0m")
+	fmt.Println("\x1b[1;36m└────────────────────────────────────────────────────────┘\x1b[0m")
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	<-sigs
+	fmt.Println("\n[awg-proxy] Shutting down proxy servers...")
 }
