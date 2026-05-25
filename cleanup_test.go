@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCleanupStackRunsInReverseOrder(t *testing.T) {
@@ -75,5 +76,49 @@ func TestCleanupStackAggregatesErrors(t *testing.T) {
 		if !strings.Contains(errText, want) {
 			t.Fatalf("Run() error = %q, want it to contain %q", errText, want)
 		}
+	}
+}
+
+func TestCleanupStackConcurrentRunWaitsForResult(t *testing.T) {
+	stack := NewCleanupStack()
+	actionStarted := make(chan struct{})
+	releaseAction := make(chan struct{})
+	firstDone := make(chan error, 1)
+	secondDone := make(chan error, 1)
+
+	stack.Add("route", func() error {
+		close(actionStarted)
+		<-releaseAction
+		return errors.New("route delete failed")
+	})
+
+	go func() {
+		firstDone <- stack.Run()
+	}()
+
+	<-actionStarted
+
+	go func() {
+		secondDone <- stack.Run()
+	}()
+
+	select {
+	case err := <-secondDone:
+		t.Fatalf("second Run() returned before cleanup completed with error %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releaseAction)
+
+	firstErr := <-firstDone
+	secondErr := <-secondDone
+	if firstErr == nil {
+		t.Fatal("first Run() error = nil, want non-nil")
+	}
+	if secondErr == nil {
+		t.Fatal("second Run() error = nil, want non-nil")
+	}
+	if firstErr != secondErr {
+		t.Fatalf("first Run() error = %v, second Run() error = %v", firstErr, secondErr)
 	}
 }

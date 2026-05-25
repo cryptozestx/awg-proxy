@@ -15,6 +15,8 @@ type CleanupStack struct {
 	mu      sync.Mutex
 	actions []cleanupAction
 	ran     bool
+	done    chan struct{}
+	result  error
 }
 
 func NewCleanupStack() *CleanupStack {
@@ -35,11 +37,18 @@ func (s *CleanupStack) Add(name string, fn func() error) {
 func (s *CleanupStack) Run() error {
 	s.mu.Lock()
 	if s.ran {
+		done := s.done
 		s.mu.Unlock()
-		return nil
+		<-done
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.result
 	}
 	actions := append([]cleanupAction(nil), s.actions...)
 	s.ran = true
+	s.done = make(chan struct{})
+	done := s.done
 	s.mu.Unlock()
 
 	errs := make([]error, 0)
@@ -50,5 +59,12 @@ func (s *CleanupStack) Run() error {
 		}
 	}
 
-	return errors.Join(errs...)
+	result := errors.Join(errs...)
+
+	s.mu.Lock()
+	s.result = result
+	close(done)
+	s.mu.Unlock()
+
+	return result
 }
