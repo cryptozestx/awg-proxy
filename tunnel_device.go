@@ -24,11 +24,11 @@ type AWGTunnelDeviceFactory struct{}
 type AWGTunnelDevice struct {
 	name string
 	tun  tun.Device
-	dev  *device.Device
+	dev  awgDevice
 }
 
 func (AWGTunnelDeviceFactory) Create(name string, mtu int, verbose bool) (TunnelDevice, error) {
-	tunDev, err := tun.CreateTUN(name, mtu)
+	tunDev, err := createTUN(name, mtu)
 	if err != nil {
 		return nil, fmt.Errorf("create TUN device: %w", err)
 	}
@@ -44,7 +44,7 @@ func (AWGTunnelDeviceFactory) Create(name string, mtu int, verbose bool) (Tunnel
 		level = device.LogLevelVerbose
 	}
 
-	dev := device.NewDevice(tunDev, conn.NewDefaultBind(), device.NewLogger(level, "[AWG] "))
+	dev := newAWGDevice(tunDev, level)
 	return &AWGTunnelDevice{name: actualName, tun: tunDev, dev: dev}, nil
 }
 
@@ -63,10 +63,23 @@ func (d *AWGTunnelDevice) Up(uapi string) error {
 }
 
 func (d *AWGTunnelDevice) Close() error {
+	// amneziawg-go device owns closing the underlying TUN.
 	d.dev.Close()
-	return d.tun.Close()
+	return nil
 }
 
 func BuildResolvedTunnelUAPI(cfg *AWGConfig, endpoint netip.AddrPort) (string, error) {
 	return CloneConfigWithResolvedEndpoint(cfg, endpoint).ToUAPI()
+}
+
+type awgDevice interface {
+	IpcSet(string) error
+	Up() error
+	Close()
+}
+
+var createTUN = tun.CreateTUN
+
+var newAWGDevice = func(tunDev tun.Device, level int) awgDevice {
+	return device.NewDevice(tunDev, conn.NewDefaultBind(), device.NewLogger(level, "[AWG] "))
 }
