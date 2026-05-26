@@ -92,7 +92,7 @@ func main() {
 
 func runProxyMode(cfg *config.AWGConfig, opts CLIOptions) {
 	// 2. Parse address sets
-	localAddrs, err := proxy.ParseAddresses(cfg.Interface.Address)
+	localAddrs, err := parseAddresses(cfg.Interface.Address)
 	if err != nil {
 		log.Fatalf("Failed to parse interface addresses: %v", err)
 	}
@@ -100,7 +100,7 @@ func runProxyMode(cfg *config.AWGConfig, opts CLIOptions) {
 		log.Fatalf("No interface IP addresses defined in [Interface]")
 	}
 
-	dnsAddrs, err := proxy.ParseAddresses(cfg.Interface.DNS)
+	dnsAddrs, err := parseAddresses(cfg.Interface.DNS)
 	if err != nil {
 		log.Printf("[Warning] DNS parse issue: %v. Defaulting to 1.1.1.1.", err)
 		dnsAddrs = []netip.Addr{netip.MustParseAddr("1.1.1.1")}
