@@ -78,6 +78,10 @@ func TestDomainRuleMatchesDelimobilWildcard(t *testing.T) {
 		"openai.com",
 		"delimobil.ru",
 		"git.delimobil",
+		"git.delimobil.ru.evil.com",
+		"x.delimobil.attacker.com",
+		".delimobil.ru",
+		"git.delimobil.ru..",
 	}
 	for _, host := range nonMatches {
 		if rule.Matches(host) {
