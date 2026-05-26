@@ -68,7 +68,8 @@ func TestLowerLevelPackagesDoNotImportApp(t *testing.T) {
 	for _, name := range packages {
 		pkg, err := build.ImportDir(filepath.Join(root, "internal", name), 0)
 		if err != nil {
-			if strings.Contains(err.Error(), "no Go files") {
+			if strings.Contains(err.Error(), "no Go files") ||
+				strings.Contains(err.Error(), `cannot find package "."`) {
 				continue
 			}
 			t.Fatalf("build.ImportDir(%s) returned error: %v", name, err)
