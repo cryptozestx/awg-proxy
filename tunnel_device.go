@@ -1,6 +1,7 @@
 package main
 
 import (
+	"awg-proxy/internal/config"
 	"fmt"
 	"net/netip"
 	"os"
@@ -72,7 +73,7 @@ func (d *AWGTunnelDevice) Close() error {
 	return nil
 }
 
-func BuildResolvedTunnelUAPI(cfg *AWGConfig, endpoint netip.AddrPort) (string, error) {
+func BuildResolvedTunnelUAPI(cfg *config.AWGConfig, endpoint netip.AddrPort) (string, error) {
 	return CloneConfigWithResolvedEndpoint(cfg, endpoint).ToUAPI()
 }
 

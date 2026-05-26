@@ -1,6 +1,7 @@
 package main
 
 import (
+	"awg-proxy/internal/config"
 	"awg-proxy/internal/platform"
 	"context"
 	"errors"
@@ -30,7 +31,7 @@ type DryRunRecorder interface {
 	RecordDryRun(string)
 }
 
-func RunTunnel(cfg *AWGConfig, opts TunnelOptions) error {
+func RunTunnel(cfg *config.AWGConfig, opts TunnelOptions) error {
 	ctx := context.Background()
 	if opts.DryRun {
 		runner := platform.NewDryRunRunnerWithOutput(platform.ExecRunner{})
@@ -62,7 +63,7 @@ func RunTunnel(cfg *AWGConfig, opts TunnelOptions) error {
 	return RunTunnelWithDeps(ctx, cfg, opts, deps)
 }
 
-func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, deps TunnelDeps) (retErr error) {
+func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOptions, deps TunnelDeps) (retErr error) {
 	if ctx == nil {
 		return fmt.Errorf("tunnel context is nil")
 	}

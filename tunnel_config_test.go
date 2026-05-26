@@ -1,20 +1,21 @@
 package main
 
 import (
+	"awg-proxy/internal/config"
 	"errors"
 	"net/netip"
 	"strings"
 	"testing"
 )
 
-func validTunnelConfig() *AWGConfig {
-	return &AWGConfig{
-		Interface: InterfaceConfig{
+func validTunnelConfig() *config.AWGConfig {
+	return &config.AWGConfig{
+		Interface: config.InterfaceConfig{
 			PrivateKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 			Address:    []string{"10.8.0.2/32", "fd00::2/128"},
 			DNS:        []string{"1.1.1.1"},
 		},
-		Peers: []PeerConfig{{
+		Peers: []config.PeerConfig{{
 			PublicKey:  "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 			Endpoint:   "vpn.example.test:51820",
 			AllowedIPs: []string{"0.0.0.0/0"},

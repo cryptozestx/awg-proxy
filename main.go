@@ -1,6 +1,7 @@
 package main
 
 import (
+	"awg-proxy/internal/config"
 	"fmt"
 	"log"
 	"net/netip"
@@ -72,7 +73,7 @@ func main() {
 
 	// 1. Parse AmneziaWG Config
 	fmt.Printf("[awg-proxy] Parsing configuration: %s...\n", opts.ConfigPath)
-	cfg, err := ParseConfig(opts.ConfigPath)
+	cfg, err := config.Parse(opts.ConfigPath)
 	if err != nil {
 		log.Fatalf("Configuration parse error: %v", err)
 	}
@@ -88,7 +89,7 @@ func main() {
 	runProxyMode(cfg, opts)
 }
 
-func runProxyMode(cfg *AWGConfig, opts CLIOptions) {
+func runProxyMode(cfg *config.AWGConfig, opts CLIOptions) {
 	// 2. Parse address sets
 	localAddrs, err := parseAddresses(cfg.Interface.Address)
 	if err != nil {

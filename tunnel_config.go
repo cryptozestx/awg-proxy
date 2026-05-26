@@ -1,6 +1,7 @@
 package main
 
 import (
+	"awg-proxy/internal/config"
 	"fmt"
 	"net"
 	"net/netip"
@@ -14,7 +15,7 @@ type TunnelConfig struct {
 	EndpointPort  uint16
 }
 
-func ValidateTunnelConfig(cfg *AWGConfig) (TunnelConfig, error) {
+func ValidateTunnelConfig(cfg *config.AWGConfig) (TunnelConfig, error) {
 	if cfg == nil {
 		return TunnelConfig{}, fmt.Errorf("tunnel config is nil")
 	}
@@ -91,7 +92,7 @@ func ResolveEndpointIPv4(host string, port uint16, lookup func(string) ([]netip.
 	return netip.AddrPort{}, fmt.Errorf("endpoint host %q is not IPv4", host)
 }
 
-func CloneConfigWithResolvedEndpoint(cfg *AWGConfig, endpoint netip.AddrPort) *AWGConfig {
+func CloneConfigWithResolvedEndpoint(cfg *config.AWGConfig, endpoint netip.AddrPort) *config.AWGConfig {
 	if cfg == nil {
 		return nil
 	}
@@ -100,7 +101,7 @@ func CloneConfigWithResolvedEndpoint(cfg *AWGConfig, endpoint netip.AddrPort) *A
 	clone.Interface = cfg.Interface
 	clone.Interface.Address = append([]string(nil), cfg.Interface.Address...)
 	clone.Interface.DNS = append([]string(nil), cfg.Interface.DNS...)
-	clone.Peers = append([]PeerConfig(nil), cfg.Peers...)
+	clone.Peers = append([]config.PeerConfig(nil), cfg.Peers...)
 
 	for i := range clone.Peers {
 		clone.Peers[i].AllowedIPs = append([]string(nil), cfg.Peers[i].AllowedIPs...)

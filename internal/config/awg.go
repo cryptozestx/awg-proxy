@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"bufio"
@@ -61,7 +61,7 @@ func base64ToHex(b64 string) (string, error) {
 	return hex.EncodeToString(dec), nil
 }
 
-func ParseConfig(path string) (*AWGConfig, error) {
+func Parse(path string) (*AWGConfig, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
