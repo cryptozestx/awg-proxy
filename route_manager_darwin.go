@@ -4,8 +4,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
+	"time"
 )
 
 type DarwinRouteManager struct {
@@ -30,4 +32,32 @@ func (m DarwinRouteManager) DefaultRoute(ctx context.Context) (DefaultRoute, err
 
 func (m DarwinRouteManager) Apply(ctx context.Context, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error {
 	return darwinApplyRoutes(ctx, m.Runner, ifName, plan, defaultRoute, cleanup)
+}
+
+type DarwinDynamicBypassRoutes struct {
+	Runner       CommandRunner
+	DefaultRoute DefaultRoute
+	set          dynamicRouteSet
+}
+
+func (m *DarwinDynamicBypassRoutes) AddBypassRoute(ctx context.Context, prefix netip.Prefix, reason string, ttl time.Duration) error {
+	target := routeTarget(prefix)
+	if !m.set.add(prefix) {
+		return nil
+	}
+	if err := m.Runner.Run(ctx, "route", "add", target, m.DefaultRoute.Gateway.String()); err != nil {
+		return fmt.Errorf("add dynamic bypass route %s via %s: %w", target, m.DefaultRoute.Gateway, err)
+	}
+	return nil
+}
+
+func (m *DarwinDynamicBypassRoutes) Close() error {
+	var errs []error
+	for _, prefix := range m.set.takeAll() {
+		target := routeTarget(prefix)
+		if err := m.Runner.Run(context.Background(), "route", "delete", target); err != nil {
+			errs = append(errs, fmt.Errorf("delete dynamic bypass route %s: %w", target, err))
+		}
+	}
+	return errors.Join(errs...)
 }

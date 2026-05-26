@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 func darwinConfigureAddressCommand(ifName string, addr netip.Prefix, mtu int) []string {
@@ -41,6 +42,36 @@ func routeTarget(prefix netip.Prefix) string {
 		return prefix.Addr().String()
 	}
 	return prefix.String()
+}
+
+type dynamicRouteSet struct {
+	mu     sync.Mutex
+	routes map[string]netip.Prefix
+}
+
+func (s *dynamicRouteSet) add(prefix netip.Prefix) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.routes == nil {
+		s.routes = make(map[string]netip.Prefix)
+	}
+	key := prefix.String()
+	if _, ok := s.routes[key]; ok {
+		return false
+	}
+	s.routes[key] = prefix
+	return true
+}
+
+func (s *dynamicRouteSet) takeAll() []netip.Prefix {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := make([]netip.Prefix, 0, len(s.routes))
+	for _, prefix := range s.routes {
+		result = append(result, prefix)
+	}
+	s.routes = nil
+	return result
 }
 
 func parseDarwinDefaultRoute(out string) (DefaultRoute, error) {
