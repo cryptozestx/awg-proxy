@@ -1,10 +1,11 @@
 package structure_test
 
 import (
-	"go/build"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
-	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -46,18 +47,64 @@ func TestNoRootProductionGoFiles(t *testing.T) {
 	}
 }
 
+func packageImports(t *testing.T, root string, name string) ([]string, bool) {
+	t.Helper()
+	dir := filepath.Join(root, "internal", name)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false
+		}
+		t.Fatalf("os.ReadDir(%s) returned error: %v", dir, err)
+	}
+	var imports []string
+	var foundGoFiles bool
+	for _, entry := range entries {
+		fileName := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(fileName, ".go") || strings.HasSuffix(fileName, "_test.go") {
+			continue
+		}
+		foundGoFiles = true
+		filePath := filepath.Join(dir, fileName)
+		file, err := parser.ParseFile(token.NewFileSet(), filePath, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parser.ParseFile(%s) returned error: %v", filePath, err)
+		}
+		for _, imp := range file.Imports {
+			path, err := strconv.Unquote(imp.Path.Value)
+			if err != nil {
+				t.Fatalf("strconv.Unquote(%s) returned error: %v", imp.Path.Value, err)
+			}
+			imports = append(imports, path)
+		}
+	}
+	if !foundGoFiles {
+		return nil, false
+	}
+	return imports, true
+}
+
+func importsPackage(importPath string, target string) bool {
+	return importPath == target || strings.HasPrefix(importPath, target+"/")
+}
+
 func TestInternalPlatformHasNoHighLevelImports(t *testing.T) {
 	root := repoRoot(t)
-	pkg, err := build.ImportDir(filepath.Join(root, "internal", "platform"), 0)
-	if err != nil {
-		t.Fatalf("build.ImportDir returned error: %v", err)
+	imports, exists := packageImports(t, root, "platform")
+	if !exists {
+		return
 	}
-	for _, imp := range pkg.Imports {
-		if strings.Contains(imp, "/internal/app") ||
-			strings.Contains(imp, "/internal/tunnel") ||
-			strings.Contains(imp, "/internal/routing") ||
-			strings.Contains(imp, "/internal/dns") {
-			t.Fatalf("internal/platform imports high-level package %s", imp)
+	disallowed := []string{
+		"awg-proxy/internal/app",
+		"awg-proxy/internal/tunnel",
+		"awg-proxy/internal/routing",
+		"awg-proxy/internal/dns",
+	}
+	for _, imp := range imports {
+		for _, target := range disallowed {
+			if importsPackage(imp, target) {
+				t.Fatalf("internal/platform imports high-level package %s", imp)
+			}
 		}
 	}
 }
@@ -66,16 +113,14 @@ func TestLowerLevelPackagesDoNotImportApp(t *testing.T) {
 	root := repoRoot(t)
 	packages := []string{"awgnet", "config", "dns", "platform", "proxy", "routing", "tunnel"}
 	for _, name := range packages {
-		pkg, err := build.ImportDir(filepath.Join(root, "internal", name), 0)
-		if err != nil {
-			if strings.Contains(err.Error(), "no Go files") ||
-				strings.Contains(err.Error(), `cannot find package "."`) {
-				continue
-			}
-			t.Fatalf("build.ImportDir(%s) returned error: %v", name, err)
+		imports, exists := packageImports(t, root, name)
+		if !exists {
+			continue
 		}
-		if slices.Contains(pkg.Imports, "awg-proxy/internal/app") {
-			t.Fatalf("internal/%s imports internal/app", name)
+		for _, imp := range imports {
+			if importsPackage(imp, "awg-proxy/internal/app") {
+				t.Fatalf("internal/%s imports internal/app", name)
+			}
 		}
 	}
 }
