@@ -165,6 +165,24 @@ func TestRunTunnelNoDNSSkipsDNSManager(t *testing.T) {
 	}
 }
 
+func TestRunTunnelRejectsDomainRulesWithNoDNSBeforeDeviceSetup(t *testing.T) {
+	dev := &fakeTunnelDevice{name: "utun99"}
+	factory := &fakeTunnelDeviceFactory{dev: dev}
+	routes := &fakeRouteManager{}
+	dns := &fakeDNSManager{}
+	deps := fakeTunnelDeps(dev, routes, dns)
+	deps.DeviceFactory = factory
+	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
+
+	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{RulesPath: path, NoDNS: true}, deps)
+	if err == nil {
+		t.Fatalf("RunTunnelWithDeps succeeded, want error")
+	}
+	if factory.called {
+		t.Fatalf("device factory was called before domain/no-dns validation failed")
+	}
+}
+
 func TestRunTunnelLoadsRulesAndPassesStaticBypassToRoutes(t *testing.T) {
 	dev := &fakeTunnelDevice{name: "utun99"}
 	routes := &fakeRouteManager{}

@@ -124,7 +124,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 	if err != nil {
 		return err
 	}
-	if opts.NoDNS && len(rules.DomainRules) > 0 {
+	if opts.NoDNS && rules.HasDomainRules() {
 		return fmt.Errorf("domain bypass rules require tunnel DNS control; remove --no-dns or remove exclude_domain rules")
 	}
 
