@@ -83,15 +83,22 @@ func (m *fakeRouteManager) Apply(ctx context.Context, ifName string, plan RouteP
 }
 
 type fakeDNSManager struct {
-	calls   []string
-	servers []string
+	calls        []string
+	orderedCalls *[]string
+	servers      []string
 }
 
 func (m *fakeDNSManager) Apply(ctx context.Context, servers []string, cleanup *CleanupStack) error {
 	m.calls = append(m.calls, "dns")
+	if m.orderedCalls != nil {
+		*m.orderedCalls = append(*m.orderedCalls, "dns")
+	}
 	m.servers = append([]string(nil), servers...)
 	cleanup.Add("dns", func() error {
 		m.calls = append(m.calls, "cleanup-dns")
+		if m.orderedCalls != nil {
+			*m.orderedCalls = append(*m.orderedCalls, "cleanup-dns")
+		}
 		return nil
 	})
 	return ctx.Err()
@@ -228,6 +235,7 @@ func TestRunTunnelStartsDomainRuntimeBeforeApplyingDNS(t *testing.T) {
 	dns := &fakeDNSManager{}
 	deps := fakeTunnelDeps(dev, routes, dns)
 	var calls []string
+	dns.orderedCalls = &calls
 	runtime := &fakeDomainRuntime{calls: &calls}
 	dynamicRoutes := &fakeDynamicRoutes{calls: &calls}
 	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
@@ -246,8 +254,9 @@ func TestRunTunnelStartsDomainRuntimeBeforeApplyingDNS(t *testing.T) {
 	if !reflect.DeepEqual(dns.servers, []string{"127.0.0.1"}) {
 		t.Fatalf("DNS servers = %v, want [127.0.0.1]", dns.servers)
 	}
-	if !reflect.DeepEqual(calls, []string{"domain-runtime-start", "domain-runtime-close", "dynamic-routes-close"}) {
-		t.Fatalf("domain calls = %v, want runtime start before cleanup", calls)
+	wantCalls := []string{"domain-runtime-start", "dns", "cleanup-dns", "domain-runtime-close", "dynamic-routes-close"}
+	if !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("ordered calls = %v, want %v", calls, wantCalls)
 	}
 	if runtime.config.ListenAddr != "127.0.0.1:53" {
 		t.Fatalf("ListenAddr = %q, want 127.0.0.1:53", runtime.config.ListenAddr)
