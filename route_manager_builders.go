@@ -36,6 +36,13 @@ func ipv4Netmask(bits int) string {
 	return fmt.Sprintf("%d.%d.%d.%d", mask[0], mask[1], mask[2], mask[3])
 }
 
+func routeTarget(prefix netip.Prefix) string {
+	if prefix.Bits() == 32 {
+		return prefix.Addr().String()
+	}
+	return prefix.String()
+}
+
 func parseDarwinDefaultRoute(out string) (DefaultRoute, error) {
 	var route DefaultRoute
 	for _, line := range strings.Split(out, "\n") {
@@ -104,6 +111,19 @@ func darwinApplyRoutes(ctx context.Context, runner CommandRunner, ifName string,
 		return nil
 	})
 
+	for _, cidr := range plan.StaticBypassCIDRs {
+		target := routeTarget(cidr)
+		if err := runner.Run(ctx, "route", "add", target, defaultRoute.Gateway.String()); err != nil {
+			return fmt.Errorf("add static bypass route %s via %s: %w", target, defaultRoute.Gateway, err)
+		}
+		cleanup.Add("delete static bypass route "+target, func() error {
+			if err := runner.Run(context.Background(), "route", "delete", target); err != nil {
+				return fmt.Errorf("delete static bypass route %s: %w", target, err)
+			}
+			return nil
+		})
+	}
+
 	for _, cidr := range plan.TunnelCIDRs {
 		cidrText := cidr.String()
 		if err := runner.Run(ctx, "route", "add", cidrText, "-interface", ifName); err != nil {
@@ -131,6 +151,19 @@ func linuxApplyRoutes(ctx context.Context, runner CommandRunner, ifName string, 
 		}
 		return nil
 	})
+
+	for _, cidr := range plan.StaticBypassCIDRs {
+		target := cidr.String()
+		if err := runner.Run(ctx, "ip", "route", "add", target, "via", defaultRoute.Gateway.String(), "dev", defaultRoute.Device); err != nil {
+			return fmt.Errorf("add static bypass route %s via %s dev %s: %w", target, defaultRoute.Gateway, defaultRoute.Device, err)
+		}
+		cleanup.Add("delete static bypass route "+target, func() error {
+			if err := runner.Run(context.Background(), "ip", "route", "del", target); err != nil {
+				return fmt.Errorf("delete static bypass route %s: %w", target, err)
+			}
+			return nil
+		})
+	}
 
 	for _, cidr := range plan.TunnelCIDRs {
 		cidrText := cidr.String()

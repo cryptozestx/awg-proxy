@@ -170,6 +170,62 @@ func TestLinuxApplyCommandSequenceAndCleanup(t *testing.T) {
 	}
 }
 
+func TestDarwinApplyRoutesIncludesStaticBypass(t *testing.T) {
+	runner := &fakeRouteRunner{}
+	cleanup := NewCleanupStack()
+	plan := RoutePlan{
+		TunnelCIDRs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1")},
+		StaticBypassCIDRs: []netip.Prefix{
+			netip.MustParsePrefix("198.51.100.0/24"),
+			netip.MustParsePrefix("203.0.113.20/32"),
+		},
+		EndpointBypass: netip.MustParseAddrPort("203.0.113.10:51820"),
+	}
+	defaultRoute := DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"}
+
+	if err := darwinApplyRoutes(context.Background(), runner, "utun9", plan, defaultRoute, cleanup); err != nil {
+		t.Fatalf("darwinApplyRoutes returned error: %v", err)
+	}
+
+	want := []string{
+		"route add 203.0.113.10 192.0.2.1",
+		"route add 198.51.100.0/24 192.0.2.1",
+		"route add 203.0.113.20 192.0.2.1",
+		"route add 0.0.0.0/1 -interface utun9",
+	}
+	if !reflect.DeepEqual(runner.runRecords, want) {
+		t.Fatalf("commands = %#v, want %#v", runner.runRecords, want)
+	}
+}
+
+func TestLinuxApplyRoutesIncludesStaticBypass(t *testing.T) {
+	runner := &fakeRouteRunner{}
+	cleanup := NewCleanupStack()
+	plan := RoutePlan{
+		TunnelCIDRs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1")},
+		StaticBypassCIDRs: []netip.Prefix{
+			netip.MustParsePrefix("198.51.100.0/24"),
+			netip.MustParsePrefix("203.0.113.20/32"),
+		},
+		EndpointBypass: netip.MustParseAddrPort("203.0.113.10:51820"),
+	}
+	defaultRoute := DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "eth0"}
+
+	if err := linuxApplyRoutes(context.Background(), runner, "tun0", plan, defaultRoute, cleanup); err != nil {
+		t.Fatalf("linuxApplyRoutes returned error: %v", err)
+	}
+
+	want := []string{
+		"ip route add 203.0.113.10 via 192.0.2.1 dev eth0",
+		"ip route add 198.51.100.0/24 via 192.0.2.1 dev eth0",
+		"ip route add 203.0.113.20/32 via 192.0.2.1 dev eth0",
+		"ip route add 0.0.0.0/1 dev tun0",
+	}
+	if !reflect.DeepEqual(runner.runRecords, want) {
+		t.Fatalf("commands = %#v, want %#v", runner.runRecords, want)
+	}
+}
+
 func TestDarwinApplyFailureCleansOnlySuccessfulAdds(t *testing.T) {
 	runner := &fakeRouteRunner{runErrAt: 2}
 	cleanup := NewCleanupStack()
