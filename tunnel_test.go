@@ -135,10 +135,6 @@ func (r *fakeDomainRuntime) Close() error {
 	return nil
 }
 
-func (r *fakeDomainRuntime) HandleAnswer(ctx context.Context, rules []dnsruntime.DomainRule, answer dnsruntime.DNSAnswer, routes dnsruntime.DynamicRouteAdder) error {
-	return ctx.Err()
-}
-
 type fakeDynamicRoutes struct {
 	calls *[]string
 }

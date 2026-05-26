@@ -494,10 +494,6 @@ func (r dryRunDomainBypassRuntime) Close() error {
 	return nil
 }
 
-func (r dryRunDomainBypassRuntime) HandleAnswer(ctx context.Context, rules []dnsruntime.DomainRule, answer dnsruntime.DNSAnswer, routes dnsruntime.DynamicRouteAdder) error {
-	return ctx.Err()
-}
-
 type dryRunDynamicBypassRoutes struct {
 	Recorder DryRunRecorder
 }

@@ -43,7 +43,6 @@ type DomainBypassRuntime interface {
 	Start(ctx context.Context, config DomainBypassConfig) error
 	Addr() string
 	Close() error
-	HandleAnswer(ctx context.Context, rules []DomainRule, answer DNSAnswer, routes DynamicRouteAdder) error
 }
 
 type DNSDomainBypassRuntime struct {

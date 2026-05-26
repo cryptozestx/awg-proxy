@@ -11,10 +11,8 @@ import (
 
 type TunnelRules struct {
 	StaticBypass []netip.Prefix
-	DomainRules  []DomainRule
+	DomainRules  []dnsruntime.DomainRule
 }
-
-type DomainRule = dnsruntime.DomainRule
 
 func (r TunnelRules) HasDomainRules() bool {
 	return len(r.DomainRules) > 0
@@ -83,7 +81,7 @@ func LoadTunnelRules(path string) (TunnelRules, error) {
 			}
 			rules.StaticBypass = append(rules.StaticBypass, prefix.Masked())
 		case "exclude_domain":
-			rules.DomainRules = append(rules.DomainRules, DomainRule{Pattern: value})
+			rules.DomainRules = append(rules.DomainRules, dnsruntime.DomainRule{Pattern: value})
 		default:
 			return rules, fmt.Errorf("parse tunnel rules %s:%d: unknown key %q", path, lineNo, key)
 		}

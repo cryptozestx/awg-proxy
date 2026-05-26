@@ -132,7 +132,7 @@ func cnameResponseHandler(t *testing.T, queryName string, cnameName string, ip s
 }
 
 func TestDomainBypassRuntimeAddsRoutesForMatchingAnswers(t *testing.T) {
-	runtime := NewDomainBypassRuntime()
+	runtime := &DNSDomainBypassRuntime{}
 	routes := &fakeDynamicBypassRoutes{}
 	rules := []DomainRule{{Pattern: "*.delimobil.*"}}
 	answer := DNSAnswer{
@@ -159,7 +159,7 @@ func TestDomainBypassRuntimeAddsRoutesForMatchingAnswers(t *testing.T) {
 }
 
 func TestDomainBypassRuntimeIgnoresNonMatchingAnswers(t *testing.T) {
-	runtime := NewDomainBypassRuntime()
+	runtime := &DNSDomainBypassRuntime{}
 	routes := &fakeDynamicBypassRoutes{}
 	rules := []DomainRule{{Pattern: "*.delimobil.*"}}
 	answer := DNSAnswer{

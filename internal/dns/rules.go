@@ -15,11 +15,6 @@ type DynamicRouteAdder interface {
 	AddBypassRoute(ctx context.Context, prefix netip.Prefix, reason string, ttl time.Duration) error
 }
 
-type DynamicRoutes interface {
-	DynamicRouteAdder
-	Close() error
-}
-
 func (r DomainRule) Matches(host string) bool {
 	pattern := normalizeDomainPattern(r.Pattern)
 	host = normalizeDomainPattern(host)
