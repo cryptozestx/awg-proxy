@@ -1,4 +1,4 @@
-package main
+package tunnel
 
 import (
 	"awg-proxy/internal/config"
@@ -11,25 +11,25 @@ import (
 	"github.com/amnezia-vpn/amneziawg-go/tun"
 )
 
-type TunnelDevice interface {
+type Device interface {
 	Name() string
 	Up(uapi string) error
 	Close() error
 }
 
-type TunnelDeviceFactory interface {
-	Create(name string, mtu int, verbose bool) (TunnelDevice, error)
+type DeviceFactory interface {
+	Create(name string, mtu int, verbose bool) (Device, error)
 }
 
-type AWGTunnelDeviceFactory struct{}
+type AWGDeviceFactory struct{}
 
-type AWGTunnelDevice struct {
+type AWGDevice struct {
 	name string
 	tun  tun.Device
 	dev  awgDevice
 }
 
-func (AWGTunnelDeviceFactory) Create(name string, mtu int, verbose bool) (TunnelDevice, error) {
+func (AWGDeviceFactory) Create(name string, mtu int, verbose bool) (Device, error) {
 	tunDev, err := createTUN(name, mtu)
 	if err != nil {
 		if os.IsPermission(err) {
@@ -50,14 +50,14 @@ func (AWGTunnelDeviceFactory) Create(name string, mtu int, verbose bool) (Tunnel
 	}
 
 	dev := newAWGDevice(tunDev, level)
-	return &AWGTunnelDevice{name: actualName, tun: tunDev, dev: dev}, nil
+	return &AWGDevice{name: actualName, tun: tunDev, dev: dev}, nil
 }
 
-func (d *AWGTunnelDevice) Name() string {
+func (d *AWGDevice) Name() string {
 	return d.name
 }
 
-func (d *AWGTunnelDevice) Up(uapi string) error {
+func (d *AWGDevice) Up(uapi string) error {
 	if err := d.dev.IpcSet(uapi); err != nil {
 		return fmt.Errorf("apply tunnel UAPI: %w", err)
 	}
@@ -67,13 +67,13 @@ func (d *AWGTunnelDevice) Up(uapi string) error {
 	return nil
 }
 
-func (d *AWGTunnelDevice) Close() error {
+func (d *AWGDevice) Close() error {
 	// amneziawg-go device owns closing the underlying TUN.
 	d.dev.Close()
 	return nil
 }
 
-func BuildResolvedTunnelUAPI(cfg *config.AWGConfig, endpoint netip.AddrPort) (string, error) {
+func BuildResolvedUAPI(cfg *config.AWGConfig, endpoint netip.AddrPort) (string, error) {
 	return CloneConfigWithResolvedEndpoint(cfg, endpoint).ToUAPI()
 }
 

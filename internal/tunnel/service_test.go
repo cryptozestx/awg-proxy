@@ -1,4 +1,4 @@
-package main
+package tunnel
 
 import (
 	dnsruntime "awg-proxy/internal/dns"
@@ -6,9 +6,7 @@ import (
 	"awg-proxy/internal/routing"
 	"context"
 	"errors"
-	"io"
 	"net/netip"
-	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -16,36 +14,36 @@ import (
 	"time"
 )
 
-type fakeTunnelDevice struct {
+type fakeDevice struct {
 	name     string
 	closed   bool
 	upUAPI   string
 	closeErr error
 }
 
-func (d *fakeTunnelDevice) Name() string {
+func (d *fakeDevice) Name() string {
 	return d.name
 }
 
-func (d *fakeTunnelDevice) Up(uapi string) error {
+func (d *fakeDevice) Up(uapi string) error {
 	d.upUAPI = uapi
 	return nil
 }
 
-func (d *fakeTunnelDevice) Close() error {
+func (d *fakeDevice) Close() error {
 	d.closed = true
 	return d.closeErr
 }
 
-type fakeTunnelDeviceFactory struct {
-	dev     *fakeTunnelDevice
+type fakeDeviceFactory struct {
+	dev     *fakeDevice
 	name    string
 	mtu     int
 	verbose bool
 	called  bool
 }
 
-func (f *fakeTunnelDeviceFactory) Create(name string, mtu int, verbose bool) (TunnelDevice, error) {
+func (f *fakeDeviceFactory) Create(name string, mtu int, verbose bool) (Device, error) {
 	f.called = true
 	f.name = name
 	f.mtu = mtu
@@ -149,9 +147,9 @@ func (r *fakeDynamicRoutes) Close() error {
 	return nil
 }
 
-func fakeTunnelDeps(dev *fakeTunnelDevice, routes *fakeRouteManager, dns *fakeDNSManager) TunnelDeps {
-	return TunnelDeps{
-		DeviceFactory: &fakeTunnelDeviceFactory{dev: dev},
+func fakeDeps(dev *fakeDevice, routes *fakeRouteManager, dns *fakeDNSManager) Deps {
+	return Deps{
+		DeviceFactory: &fakeDeviceFactory{dev: dev},
 		RouteManager:  routes,
 		DNSManager:    dns,
 		Lookup: func(host string) ([]netip.Addr, error) {
@@ -166,19 +164,19 @@ func fakeTunnelDeps(dev *fakeTunnelDevice, routes *fakeRouteManager, dns *fakeDN
 	}
 }
 
-func TestRunTunnelSetupThenCleanup(t *testing.T) {
-	dev := &fakeTunnelDevice{name: "utun99"}
-	factory := &fakeTunnelDeviceFactory{dev: dev}
+func TestRunSetupThenCleanup(t *testing.T) {
+	dev := &fakeDevice{name: "utun99"}
+	factory := &fakeDeviceFactory{dev: dev}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 	deps.DeviceFactory = factory
 	cfg := validTunnelConfig()
 	cfg.Interface.MTU = -1
 
-	err := RunTunnelWithDeps(context.Background(), cfg, TunnelOptions{ConfigPath: "amnezia.conf"}, deps)
+	err := RunWithDeps(context.Background(), cfg, Options{ConfigPath: "amnezia.conf"}, deps)
 	if err != nil {
-		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+		t.Fatalf("RunWithDeps returned error: %v", err)
 	}
 
 	if factory.name != defaultTunnelName() {
@@ -202,15 +200,15 @@ func TestRunTunnelSetupThenCleanup(t *testing.T) {
 	}
 }
 
-func TestRunTunnelNoDNSSkipsDNSManager(t *testing.T) {
-	dev := &fakeTunnelDevice{name: "utun99"}
+func TestRunNoDNSSkipsDNSManager(t *testing.T) {
+	dev := &fakeDevice{name: "utun99"}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 
-	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{NoDNS: true}, deps)
+	err := RunWithDeps(context.Background(), validTunnelConfig(), Options{NoDNS: true}, deps)
 	if err != nil {
-		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+		t.Fatalf("RunWithDeps returned error: %v", err)
 	}
 
 	if len(dns.calls) != 0 {
@@ -218,29 +216,29 @@ func TestRunTunnelNoDNSSkipsDNSManager(t *testing.T) {
 	}
 }
 
-func TestRunTunnelRejectsDomainRulesWithNoDNSBeforeDeviceSetup(t *testing.T) {
-	dev := &fakeTunnelDevice{name: "utun99"}
-	factory := &fakeTunnelDeviceFactory{dev: dev}
+func TestRunRejectsDomainRulesWithNoDNSBeforeDeviceSetup(t *testing.T) {
+	dev := &fakeDevice{name: "utun99"}
+	factory := &fakeDeviceFactory{dev: dev}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 	deps.DeviceFactory = factory
 	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
 
-	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{RulesPath: path, NoDNS: true}, deps)
+	err := RunWithDeps(context.Background(), validTunnelConfig(), Options{RulesPath: path, NoDNS: true}, deps)
 	if err == nil {
-		t.Fatalf("RunTunnelWithDeps succeeded, want error")
+		t.Fatalf("RunWithDeps succeeded, want error")
 	}
 	if factory.called {
 		t.Fatalf("device factory was called before domain/no-dns validation failed")
 	}
 }
 
-func TestRunTunnelStartsDomainRuntimeBeforeApplyingDNS(t *testing.T) {
-	dev := &fakeTunnelDevice{name: "utun99"}
+func TestRunStartsDomainRuntimeBeforeApplyingDNS(t *testing.T) {
+	dev := &fakeDevice{name: "utun99"}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 	var calls []string
 	dns.orderedCalls = &calls
 	runtime := &fakeDomainRuntime{calls: &calls}
@@ -253,9 +251,9 @@ func TestRunTunnelStartsDomainRuntimeBeforeApplyingDNS(t *testing.T) {
 	}
 	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
 
-	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{RulesPath: path}, deps)
+	err := RunWithDeps(context.Background(), validTunnelConfig(), Options{RulesPath: path}, deps)
 	if err != nil {
-		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+		t.Fatalf("RunWithDeps returned error: %v", err)
 	}
 
 	if !reflect.DeepEqual(dns.servers, []string{"127.0.0.1"}) {
@@ -286,11 +284,11 @@ func TestRunTunnelStartsDomainRuntimeBeforeApplyingDNS(t *testing.T) {
 	}
 }
 
-func TestRunTunnelDomainRoutesSkipStaticCoveredPrefix(t *testing.T) {
-	dev := &fakeTunnelDevice{name: "utun99"}
+func TestRunDomainRoutesSkipStaticCoveredPrefix(t *testing.T) {
+	dev := &fakeDevice{name: "utun99"}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 	var calls []string
 	runtime := &fakeDomainRuntime{calls: &calls}
 	runtime.onStart = func(ctx context.Context, config dnsruntime.DomainBypassConfig) error {
@@ -308,9 +306,9 @@ exclude_ip = 198.51.100.44
 exclude_domain = *.delimobil.*
 `)
 
-	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{RulesPath: path}, deps)
+	err := RunWithDeps(context.Background(), validTunnelConfig(), Options{RulesPath: path}, deps)
 	if err != nil {
-		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+		t.Fatalf("RunWithDeps returned error: %v", err)
 	}
 
 	if slices.Contains(calls, "dynamic-route-add:198.51.100.44/32") {
@@ -318,16 +316,16 @@ exclude_domain = *.delimobil.*
 	}
 }
 
-func TestRunTunnelLoadsRulesAndPassesStaticBypassToRoutes(t *testing.T) {
-	dev := &fakeTunnelDevice{name: "utun99"}
+func TestRunLoadsRulesAndPassesStaticBypassToRoutes(t *testing.T) {
+	dev := &fakeDevice{name: "utun99"}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 	path := writeTempRules(t, `exclude_ip = 198.51.100.44`)
 
-	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{RulesPath: path}, deps)
+	err := RunWithDeps(context.Background(), validTunnelConfig(), Options{RulesPath: path}, deps)
 	if err != nil {
-		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+		t.Fatalf("RunWithDeps returned error: %v", err)
 	}
 
 	want := []netip.Prefix{netip.MustParsePrefix("198.51.100.44/32")}
@@ -336,17 +334,17 @@ func TestRunTunnelLoadsRulesAndPassesStaticBypassToRoutes(t *testing.T) {
 	}
 }
 
-func TestRunTunnelDryRunSkipsInjectedDeviceFactory(t *testing.T) {
-	dev := &fakeTunnelDevice{name: "utun99"}
-	factory := &fakeTunnelDeviceFactory{dev: dev}
+func TestRunDryRunSkipsInjectedDeviceFactory(t *testing.T) {
+	dev := &fakeDevice{name: "utun99"}
+	factory := &fakeDeviceFactory{dev: dev}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 	deps.DeviceFactory = factory
 
-	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{DryRun: true}, deps)
+	err := RunWithDeps(context.Background(), validTunnelConfig(), Options{DryRun: true}, deps)
 	if err != nil {
-		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+		t.Fatalf("RunWithDeps returned error: %v", err)
 	}
 
 	if factory.called {
@@ -366,32 +364,32 @@ func TestRunTunnelDryRunSkipsInjectedDeviceFactory(t *testing.T) {
 	}
 }
 
-func TestRunTunnelDryRunExitsWithoutWaiting(t *testing.T) {
-	dev := &fakeTunnelDevice{name: "utun99"}
+func TestRunDryRunExitsWithoutWaiting(t *testing.T) {
+	dev := &fakeDevice{name: "utun99"}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 	waitErr := errors.New("wait called")
 	deps.Wait = func(context.Context) error {
 		return waitErr
 	}
 
-	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{DryRun: true}, deps)
+	err := RunWithDeps(context.Background(), validTunnelConfig(), Options{DryRun: true}, deps)
 	if errors.Is(err, waitErr) {
 		t.Fatalf("dry-run waited for signal: %v", err)
 	}
 	if err != nil {
-		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+		t.Fatalf("RunWithDeps returned error: %v", err)
 	}
 }
 
-func TestRunTunnelDryRunDomainRulesDoNotUseInjectedRuntimeFactories(t *testing.T) {
+func TestRunDryRunDomainRulesDoNotUseInjectedRuntimeFactories(t *testing.T) {
 	recorder := platform.NewDryRunRunner()
-	dev := &fakeTunnelDevice{name: "utun99"}
+	dev := &fakeDevice{name: "utun99"}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
-	deps.DeviceFactory = dryRunTunnelDeviceFactory{Recorder: recorder}
+	deps := fakeDeps(dev, routes, dns)
+	deps.DeviceFactory = dryRunDeviceFactory{Recorder: recorder}
 	deps.RouteManager = dryRunRouteManager{
 		RouteManager: routes,
 		Recorder:     recorder,
@@ -406,9 +404,9 @@ func TestRunTunnelDryRunDomainRulesDoNotUseInjectedRuntimeFactories(t *testing.T
 	}
 	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
 
-	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{DryRun: true, RulesPath: path}, deps)
+	err := RunWithDeps(context.Background(), validTunnelConfig(), Options{DryRun: true, RulesPath: path}, deps)
 	if err != nil {
-		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+		t.Fatalf("RunWithDeps returned error: %v", err)
 	}
 
 	commands := recorder.Commands()
@@ -420,11 +418,11 @@ func TestRunTunnelDryRunDomainRulesDoNotUseInjectedRuntimeFactories(t *testing.T
 	}
 }
 
-func TestRunTunnelDomainRuntimeUsesBracketedIPv6DNSUpstream(t *testing.T) {
-	dev := &fakeTunnelDevice{name: "utun99"}
+func TestRunDomainRuntimeUsesBracketedIPv6DNSUpstream(t *testing.T) {
+	dev := &fakeDevice{name: "utun99"}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 	var calls []string
 	runtime := &fakeDomainRuntime{calls: &calls}
 	dynamicRoutes := &fakeDynamicRoutes{calls: &calls}
@@ -438,9 +436,9 @@ func TestRunTunnelDomainRuntimeUsesBracketedIPv6DNSUpstream(t *testing.T) {
 	cfg.Interface.DNS = []string{"2001:4860:4860::8888"}
 	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
 
-	err := RunTunnelWithDeps(context.Background(), cfg, TunnelOptions{RulesPath: path}, deps)
+	err := RunWithDeps(context.Background(), cfg, Options{RulesPath: path}, deps)
 	if err != nil {
-		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+		t.Fatalf("RunWithDeps returned error: %v", err)
 	}
 
 	if runtime.config.Upstream != "[2001:4860:4860::8888]:53" {
@@ -499,16 +497,16 @@ func TestDryRunRouteManagerRecordsStaticBypass(t *testing.T) {
 	}
 }
 
-func TestRunTunnelRouteApplyFailureRunsCleanup(t *testing.T) {
-	dev := &fakeTunnelDevice{name: "utun99"}
+func TestRunRouteApplyFailureRunsCleanup(t *testing.T) {
+	dev := &fakeDevice{name: "utun99"}
 	routeErr := errors.New("route apply failed")
 	routes := &fakeRouteManager{applyErr: routeErr}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 
-	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{}, deps)
+	err := RunWithDeps(context.Background(), validTunnelConfig(), Options{}, deps)
 	if !errors.Is(err, routeErr) {
-		t.Fatalf("RunTunnelWithDeps error = %v, want %v", err, routeErr)
+		t.Fatalf("RunWithDeps error = %v, want %v", err, routeErr)
 	}
 
 	if !dev.closed {
@@ -523,35 +521,35 @@ func TestRunTunnelRouteApplyFailureRunsCleanup(t *testing.T) {
 	}
 }
 
-func TestRunTunnelReturnsCleanupError(t *testing.T) {
+func TestRunReturnsCleanupError(t *testing.T) {
 	closeErr := errors.New("close failed")
-	dev := &fakeTunnelDevice{name: "utun99", closeErr: closeErr}
+	dev := &fakeDevice{name: "utun99", closeErr: closeErr}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 
-	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{}, deps)
+	err := RunWithDeps(context.Background(), validTunnelConfig(), Options{}, deps)
 	if !errors.Is(err, closeErr) {
-		t.Fatalf("RunTunnelWithDeps error = %v, want cleanup error %v", err, closeErr)
+		t.Fatalf("RunWithDeps error = %v, want cleanup error %v", err, closeErr)
 	}
 }
 
-func TestRunTunnelRejectsEmptyDNSBeforeDeviceCreation(t *testing.T) {
-	dev := &fakeTunnelDevice{name: "utun99"}
-	factory := &fakeTunnelDeviceFactory{dev: dev}
+func TestRunRejectsEmptyDNSBeforeDeviceCreation(t *testing.T) {
+	dev := &fakeDevice{name: "utun99"}
+	factory := &fakeDeviceFactory{dev: dev}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
-	deps := fakeTunnelDeps(dev, routes, dns)
+	deps := fakeDeps(dev, routes, dns)
 	deps.DeviceFactory = factory
 	cfg := validTunnelConfig()
 	cfg.Interface.DNS = nil
 
-	err := RunTunnelWithDeps(context.Background(), cfg, TunnelOptions{}, deps)
+	err := RunWithDeps(context.Background(), cfg, Options{}, deps)
 	if err == nil {
-		t.Fatalf("RunTunnelWithDeps succeeded, want error")
+		t.Fatalf("RunWithDeps succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "tunnel DNS is empty") {
-		t.Fatalf("RunTunnelWithDeps error = %v, want empty DNS error", err)
+		t.Fatalf("RunWithDeps error = %v, want empty DNS error", err)
 	}
 	if factory.called {
 		t.Fatalf("device factory called before DNS validation completed")
@@ -561,33 +559,5 @@ func TestRunTunnelRejectsEmptyDNSBeforeDeviceCreation(t *testing.T) {
 	}
 	if len(dns.calls) != 0 {
 		t.Fatalf("DNS calls = %#v, want none", dns.calls)
-	}
-}
-
-func TestPrintUsageListsTunnelOptions(t *testing.T) {
-	oldStdout := os.Stdout
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe returned error: %v", err)
-	}
-	os.Stdout = writer
-	t.Cleanup(func() {
-		os.Stdout = oldStdout
-	})
-
-	printUsage()
-	if err := writer.Close(); err != nil {
-		t.Fatalf("writer.Close returned error: %v", err)
-	}
-	out, err := io.ReadAll(reader)
-	if err != nil {
-		t.Fatalf("io.ReadAll returned error: %v", err)
-	}
-
-	text := string(out)
-	for _, flag := range []string{"--rules", "--dry-run", "--no-dns", "--verbose"} {
-		if !strings.Contains(text, flag) {
-			t.Fatalf("usage output does not mention %s:\n%s", flag, text)
-		}
 	}
 }

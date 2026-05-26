@@ -1,4 +1,4 @@
-package main
+package tunnel
 
 import (
 	"errors"
@@ -10,13 +10,13 @@ import (
 	"github.com/amnezia-vpn/amneziawg-go/tun"
 )
 
-func TestBuildResolvedTunnelUAPI(t *testing.T) {
+func TestBuildResolvedUAPI(t *testing.T) {
 	cfg := validTunnelConfig()
 	resolved := netip.MustParseAddrPort("203.0.113.10:51820")
 
-	uapi, err := BuildResolvedTunnelUAPI(cfg, resolved)
+	uapi, err := BuildResolvedUAPI(cfg, resolved)
 	if err != nil {
-		t.Fatalf("BuildResolvedTunnelUAPI returned error: %v", err)
+		t.Fatalf("BuildResolvedUAPI returned error: %v", err)
 	}
 
 	if !strings.Contains(uapi, "endpoint=203.0.113.10:51820") {
@@ -27,7 +27,7 @@ func TestBuildResolvedTunnelUAPI(t *testing.T) {
 	}
 }
 
-func TestAWGTunnelDeviceFactoryClosesTUNOnNameFailure(t *testing.T) {
+func TestAWGDeviceFactoryClosesTUNOnNameFailure(t *testing.T) {
 	nameErr := errors.New("name failed")
 	tunDev := &fakeTUN{nameErr: nameErr}
 	newDeviceCalled := false
@@ -52,7 +52,7 @@ func TestAWGTunnelDeviceFactoryClosesTUNOnNameFailure(t *testing.T) {
 		newAWGDevice = origNewAWGDevice
 	})
 
-	_, err := (AWGTunnelDeviceFactory{}).Create("utun-test", 1420, false)
+	_, err := (AWGDeviceFactory{}).Create("utun-test", 1420, false)
 	if !errors.Is(err, nameErr) {
 		t.Fatalf("Create error = %v, want name failure", err)
 	}
@@ -64,7 +64,7 @@ func TestAWGTunnelDeviceFactoryClosesTUNOnNameFailure(t *testing.T) {
 	}
 }
 
-func TestAWGTunnelDeviceFactoryExplainsPermissionFailure(t *testing.T) {
+func TestAWGDeviceFactoryExplainsPermissionFailure(t *testing.T) {
 	origCreateTUN := createTUN
 	createTUN = func(string, int) (tun.Device, error) {
 		return nil, os.ErrPermission
@@ -73,7 +73,7 @@ func TestAWGTunnelDeviceFactoryExplainsPermissionFailure(t *testing.T) {
 		createTUN = origCreateTUN
 	})
 
-	_, err := (AWGTunnelDeviceFactory{}).Create("utun", 1420, false)
+	_, err := (AWGDeviceFactory{}).Create("utun", 1420, false)
 	if !errors.Is(err, os.ErrPermission) {
 		t.Fatalf("Create error = %v, want permission error", err)
 	}
@@ -82,9 +82,9 @@ func TestAWGTunnelDeviceFactoryExplainsPermissionFailure(t *testing.T) {
 	}
 }
 
-func TestAWGTunnelDeviceUpAppliesUAPIBeforeStart(t *testing.T) {
+func TestAWGDeviceUpAppliesUAPIBeforeStart(t *testing.T) {
 	dev := &fakeAWGDevice{}
-	tunnel := &AWGTunnelDevice{dev: dev}
+	tunnel := &AWGDevice{dev: dev}
 
 	err := tunnel.Up("private_key=test\n")
 	if err != nil {
@@ -97,10 +97,10 @@ func TestAWGTunnelDeviceUpAppliesUAPIBeforeStart(t *testing.T) {
 	}
 }
 
-func TestAWGTunnelDeviceCloseDelegatesToDeviceOnly(t *testing.T) {
+func TestAWGDeviceCloseDelegatesToDeviceOnly(t *testing.T) {
 	dev := &fakeAWGDevice{}
 	tunDev := &fakeTUN{}
-	tunnel := &AWGTunnelDevice{tun: tunDev, dev: dev}
+	tunnel := &AWGDevice{tun: tunDev, dev: dev}
 
 	err := tunnel.Close()
 	if err != nil {

@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package tunnel
 
 func defaultTunnelName() string {
 	return "utun"

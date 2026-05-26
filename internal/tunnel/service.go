@@ -1,4 +1,4 @@
-package main
+package tunnel
 
 import (
 	"awg-proxy/internal/config"
@@ -19,8 +19,16 @@ import (
 
 const endpointLookupTimeout = 10 * time.Second
 
-type TunnelDeps struct {
-	DeviceFactory        TunnelDeviceFactory
+type Options struct {
+	ConfigPath string
+	RulesPath  string
+	DryRun     bool
+	NoDNS      bool
+	Verbose    bool
+}
+
+type Deps struct {
+	DeviceFactory        DeviceFactory
 	RouteManager         routing.Manager
 	DNSManager           dnsruntime.Manager
 	DomainRuntimeFactory func() dnsruntime.DomainBypassRuntime
@@ -33,12 +41,12 @@ type DryRunRecorder interface {
 	RecordDryRun(string)
 }
 
-func RunTunnel(cfg *config.AWGConfig, opts TunnelOptions) error {
+func Run(cfg *config.AWGConfig, opts Options) error {
 	ctx := context.Background()
 	if opts.DryRun {
 		runner := platform.NewDryRunRunnerWithOutput(platform.ExecRunner{})
-		deps := TunnelDeps{
-			DeviceFactory: dryRunTunnelDeviceFactory{Recorder: runner},
+		deps := Deps{
+			DeviceFactory: dryRunDeviceFactory{Recorder: runner},
 			RouteManager: dryRunRouteManager{
 				RouteManager: routing.NewPlatformManager(runner),
 				Recorder:     runner,
@@ -50,31 +58,31 @@ func RunTunnel(cfg *config.AWGConfig, opts TunnelOptions) error {
 				return nil
 			},
 		}
-		err := RunTunnelWithDeps(ctx, cfg, opts, deps)
+		err := RunWithDeps(ctx, cfg, opts, deps)
 		printDryRunPlan(runner.Commands())
 		return err
 	}
 
-	deps := TunnelDeps{
-		DeviceFactory: AWGTunnelDeviceFactory{},
+	deps := Deps{
+		DeviceFactory: AWGDeviceFactory{},
 		RouteManager:  routing.NewPlatformManager(platform.ExecRunner{}),
 		DNSManager:    dnsruntime.NewPlatformManager(platform.ExecRunner{}),
 		Lookup:        netipLookup,
 		Wait:          waitForSignal,
 	}
-	return RunTunnelWithDeps(ctx, cfg, opts, deps)
+	return RunWithDeps(ctx, cfg, opts, deps)
 }
 
-func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOptions, deps TunnelDeps) (retErr error) {
+func RunWithDeps(ctx context.Context, cfg *config.AWGConfig, opts Options, deps Deps) (retErr error) {
 	if ctx == nil {
 		return fmt.Errorf("tunnel context is nil")
 	}
 	if opts.DryRun {
 		recorder := dryRunRecorderFromDeps(deps)
 		switch deps.DeviceFactory.(type) {
-		case dryRunTunnelDeviceFactory, *dryRunTunnelDeviceFactory:
+		case dryRunDeviceFactory, *dryRunDeviceFactory:
 		default:
-			deps.DeviceFactory = dryRunTunnelDeviceFactory{}
+			deps.DeviceFactory = dryRunDeviceFactory{}
 		}
 		if deps.RouteManager != nil {
 			switch deps.RouteManager.(type) {
@@ -124,7 +132,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOp
 		deps.DynamicRoutesFactory = routing.NewPlatformDynamicBypassRoutes
 	}
 
-	tcfg, err := ValidateTunnelConfig(cfg)
+	tcfg, err := ValidateConfig(cfg)
 	if err != nil {
 		return err
 	}
@@ -149,7 +157,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOp
 		logTunnelProgress(opts, "DNS changes disabled.")
 	}
 
-	rules, err := LoadTunnelRules(opts.RulesPath)
+	rules, err := LoadRules(opts.RulesPath)
 	if err != nil {
 		return err
 	}
@@ -186,7 +194,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOp
 	logTunnelProgress(opts, "Interface %s configured.", dev.Name())
 
 	logTunnelProgress(opts, "Building resolved AmneziaWG config...")
-	uapi, err := BuildResolvedTunnelUAPI(cfg, endpoint)
+	uapi, err := BuildResolvedUAPI(cfg, endpoint)
 	if err != nil {
 		return err
 	}
@@ -274,7 +282,7 @@ func netipLookup(host string) ([]netip.Addr, error) {
 	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 }
 
-func logTunnelProgress(opts TunnelOptions, format string, args ...any) {
+func logTunnelProgress(opts Options, format string, args ...any) {
 	if opts.DryRun {
 		return
 	}
@@ -311,34 +319,34 @@ func printDryRunPlan(commands []string) {
 	}
 }
 
-type dryRunTunnelDeviceFactory struct {
+type dryRunDeviceFactory struct {
 	Recorder DryRunRecorder
 }
 
-func (f dryRunTunnelDeviceFactory) Create(name string, mtu int, _ bool) (TunnelDevice, error) {
+func (f dryRunDeviceFactory) Create(name string, mtu int, _ bool) (Device, error) {
 	if f.Recorder != nil {
 		f.Recorder.RecordDryRun(fmt.Sprintf("create native TUN device %s mtu %d", name, mtu))
 	}
-	return dryRunTunnelDevice{name: name, recorder: f.Recorder}, nil
+	return dryRunDevice{name: name, recorder: f.Recorder}, nil
 }
 
-type dryRunTunnelDevice struct {
+type dryRunDevice struct {
 	name     string
 	recorder DryRunRecorder
 }
 
-func (d dryRunTunnelDevice) Name() string {
+func (d dryRunDevice) Name() string {
 	return d.name
 }
 
-func (d dryRunTunnelDevice) Up(string) error {
+func (d dryRunDevice) Up(string) error {
 	if d.recorder != nil {
 		d.recorder.RecordDryRun("bring up AmneziaWG device with resolved endpoint config")
 	}
 	return nil
 }
 
-func (d dryRunTunnelDevice) Close() error {
+func (d dryRunDevice) Close() error {
 	if d.recorder != nil {
 		d.recorder.RecordDryRun("close native TUN device")
 	}
@@ -437,13 +445,13 @@ func dryRunDefaultRouteFallback() routing.DefaultRoute {
 	}
 }
 
-func dryRunRecorderFromDeps(deps TunnelDeps) DryRunRecorder {
+func dryRunRecorderFromDeps(deps Deps) DryRunRecorder {
 	switch factory := deps.DeviceFactory.(type) {
-	case dryRunTunnelDeviceFactory:
+	case dryRunDeviceFactory:
 		if factory.Recorder != nil {
 			return factory.Recorder
 		}
-	case *dryRunTunnelDeviceFactory:
+	case *dryRunDeviceFactory:
 		if factory != nil && factory.Recorder != nil {
 			return factory.Recorder
 		}

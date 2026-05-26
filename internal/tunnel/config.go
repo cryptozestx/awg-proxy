@@ -1,4 +1,4 @@
-package main
+package tunnel
 
 import (
 	"awg-proxy/internal/config"
@@ -15,7 +15,7 @@ type TunnelConfig struct {
 	EndpointPort  uint16
 }
 
-func ValidateTunnelConfig(cfg *config.AWGConfig) (TunnelConfig, error) {
+func ValidateConfig(cfg *config.AWGConfig) (TunnelConfig, error) {
 	if cfg == nil {
 		return TunnelConfig{}, fmt.Errorf("tunnel config is nil")
 	}

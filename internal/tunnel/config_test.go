@@ -1,4 +1,4 @@
-package main
+package tunnel
 
 import (
 	"awg-proxy/internal/config"
@@ -23,12 +23,12 @@ func validTunnelConfig() *config.AWGConfig {
 	}
 }
 
-func TestValidateTunnelConfigPreservesIPv4CIDR(t *testing.T) {
+func TestValidateConfigPreservesIPv4CIDR(t *testing.T) {
 	cfg := validTunnelConfig()
 
-	tunnel, err := ValidateTunnelConfig(cfg)
+	tunnel, err := ValidateConfig(cfg)
 	if err != nil {
-		t.Fatalf("ValidateTunnelConfig returned error: %v", err)
+		t.Fatalf("ValidateConfig returned error: %v", err)
 	}
 
 	if tunnel.InterfaceIPv4.String() != "10.8.0.2/32" {
@@ -36,39 +36,39 @@ func TestValidateTunnelConfigPreservesIPv4CIDR(t *testing.T) {
 	}
 }
 
-func TestValidateTunnelConfigRejectsMissingPeerEndpoint(t *testing.T) {
+func TestValidateConfigRejectsMissingPeerEndpoint(t *testing.T) {
 	cfg := validTunnelConfig()
 	cfg.Peers[0].Endpoint = ""
 
-	_, err := ValidateTunnelConfig(cfg)
+	_, err := ValidateConfig(cfg)
 	if err == nil {
-		t.Fatalf("ValidateTunnelConfig succeeded, want error")
+		t.Fatalf("ValidateConfig succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "exactly one peer with Endpoint") {
 		t.Fatalf("error = %q, want exactly one peer with Endpoint", err)
 	}
 }
 
-func TestValidateTunnelConfigRejectsMissingIPv4Address(t *testing.T) {
+func TestValidateConfigRejectsMissingIPv4Address(t *testing.T) {
 	cfg := validTunnelConfig()
 	cfg.Interface.Address = []string{"fd00::2/128"}
 
-	_, err := ValidateTunnelConfig(cfg)
+	_, err := ValidateConfig(cfg)
 	if err == nil {
-		t.Fatalf("ValidateTunnelConfig succeeded, want error")
+		t.Fatalf("ValidateConfig succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "IPv4 CIDR") {
 		t.Fatalf("error = %q, want IPv4 CIDR", err)
 	}
 }
 
-func TestValidateTunnelConfigRejectsMalformedAddressWithValidIPv4Present(t *testing.T) {
+func TestValidateConfigRejectsMalformedAddressWithValidIPv4Present(t *testing.T) {
 	cfg := validTunnelConfig()
 	cfg.Interface.Address = []string{"bad", "10.8.0.2/32"}
 
-	_, err := ValidateTunnelConfig(cfg)
+	_, err := ValidateConfig(cfg)
 	if err == nil {
-		t.Fatalf("ValidateTunnelConfig succeeded, want error")
+		t.Fatalf("ValidateConfig succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "invalid Interface Address CIDR") {
 		t.Fatalf("error = %q, want invalid Interface Address CIDR", err)
@@ -78,13 +78,13 @@ func TestValidateTunnelConfigRejectsMalformedAddressWithValidIPv4Present(t *test
 	}
 }
 
-func TestValidateTunnelConfigRejectsMalformedAddressAfterValidIPv4(t *testing.T) {
+func TestValidateConfigRejectsMalformedAddressAfterValidIPv4(t *testing.T) {
 	cfg := validTunnelConfig()
 	cfg.Interface.Address = []string{"10.8.0.2/32", "bad"}
 
-	_, err := ValidateTunnelConfig(cfg)
+	_, err := ValidateConfig(cfg)
 	if err == nil {
-		t.Fatalf("ValidateTunnelConfig succeeded, want error")
+		t.Fatalf("ValidateConfig succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "invalid Interface Address CIDR") {
 		t.Fatalf("error = %q, want invalid Interface Address CIDR", err)
@@ -94,13 +94,13 @@ func TestValidateTunnelConfigRejectsMalformedAddressAfterValidIPv4(t *testing.T)
 	}
 }
 
-func TestValidateTunnelConfigRejectsMalformedAddressWithoutValidIPv4(t *testing.T) {
+func TestValidateConfigRejectsMalformedAddressWithoutValidIPv4(t *testing.T) {
 	cfg := validTunnelConfig()
 	cfg.Interface.Address = []string{"bad", "fd00::2/128"}
 
-	_, err := ValidateTunnelConfig(cfg)
+	_, err := ValidateConfig(cfg)
 	if err == nil {
-		t.Fatalf("ValidateTunnelConfig succeeded, want error")
+		t.Fatalf("ValidateConfig succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "invalid Interface Address CIDR") {
 		t.Fatalf("error = %q, want invalid Interface Address CIDR", err)

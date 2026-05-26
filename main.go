@@ -4,6 +4,7 @@ import (
 	"awg-proxy/internal/awgnet"
 	"awg-proxy/internal/config"
 	"awg-proxy/internal/proxy"
+	"awg-proxy/internal/tunnel"
 	"fmt"
 	"log"
 	"os"
@@ -77,7 +78,7 @@ func main() {
 	fmt.Println("[awg-proxy] Configuration parsed successfully.")
 
 	if opts.Command == "tunnel" {
-		if err := RunTunnel(cfg, opts.Tunnel); err != nil {
+		if err := tunnel.Run(cfg, opts.Tunnel); err != nil {
 			log.Fatalf("Tunnel error: %v", err)
 		}
 		return

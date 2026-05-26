@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package tunnel
 
 func defaultTunnelName() string {
 	return "awgproxy0"

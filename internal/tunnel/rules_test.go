@@ -1,6 +1,7 @@
-package main
+package tunnel
 
 import (
+	dnsruntime "awg-proxy/internal/dns"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -8,15 +9,15 @@ import (
 	"testing"
 )
 
-func TestLoadTunnelRulesStaticBypass(t *testing.T) {
+func TestLoadRulesStaticBypass(t *testing.T) {
 	path := writeTempRules(t, `
 exclude_ip = 203.0.113.10
 exclude_cidr = 198.51.100.0/24
 `)
 
-	rules, err := LoadTunnelRules(path)
+	rules, err := LoadRules(path)
 	if err != nil {
-		t.Fatalf("LoadTunnelRules returned error: %v", err)
+		t.Fatalf("LoadRules returned error: %v", err)
 	}
 
 	want := []netip.Prefix{
@@ -31,10 +32,10 @@ exclude_cidr = 198.51.100.0/24
 	}
 }
 
-func TestLoadTunnelRulesEmptyPathReturnsEmptyRules(t *testing.T) {
-	rules, err := LoadTunnelRules("")
+func TestLoadRulesEmptyPathReturnsEmptyRules(t *testing.T) {
+	rules, err := LoadRules("")
 	if err != nil {
-		t.Fatalf("LoadTunnelRules returned error: %v", err)
+		t.Fatalf("LoadRules returned error: %v", err)
 	}
 	if len(rules.StaticBypass) != 0 {
 		t.Fatalf("StaticBypass = %v, want empty", rules.StaticBypass)
@@ -44,36 +45,49 @@ func TestLoadTunnelRulesEmptyPathReturnsEmptyRules(t *testing.T) {
 	}
 }
 
-func TestLoadTunnelRulesRejectsInvalidStaticRule(t *testing.T) {
+func TestLoadRulesRejectsInvalidStaticRule(t *testing.T) {
 	path := writeTempRules(t, `exclude_cidr = not-a-cidr`)
 
-	_, err := LoadTunnelRules(path)
+	_, err := LoadRules(path)
 	if err == nil {
-		t.Fatalf("LoadTunnelRules succeeded, want error")
+		t.Fatalf("LoadRules succeeded, want error")
 	}
 }
 
-func TestLoadTunnelRulesRejectsUnknownKey(t *testing.T) {
+func TestLoadRulesRejectsUnknownKey(t *testing.T) {
 	path := writeTempRules(t, `include_domain = example.com`)
 
-	_, err := LoadTunnelRules(path)
+	_, err := LoadRules(path)
 	if err == nil {
-		t.Fatalf("LoadTunnelRules succeeded, want error")
+		t.Fatalf("LoadRules succeeded, want error")
 	}
 }
 
-func TestTunnelRulesHasDomainRules(t *testing.T) {
+func TestRulesHasDomainRules(t *testing.T) {
 	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
 
-	rules, err := LoadTunnelRules(path)
+	rules, err := LoadRules(path)
 	if err != nil {
-		t.Fatalf("LoadTunnelRules returned error: %v", err)
+		t.Fatalf("LoadRules returned error: %v", err)
 	}
 	if len(rules.DomainRules) != 1 {
 		t.Fatalf("DomainRules len = %d, want 1", len(rules.DomainRules))
 	}
 	if !rules.HasDomainRules() {
 		t.Fatalf("HasDomainRules = false, want true")
+	}
+}
+
+func TestRulesDNSDomainRulesReturnsDefensiveCopy(t *testing.T) {
+	rules := Rules{
+		DomainRules: []dnsruntime.DomainRule{{Pattern: "*.delimobil.*"}},
+	}
+
+	copied := rules.DNSDomainRules()
+	copied[0].Pattern = "*.changed.test"
+
+	if rules.DomainRules[0].Pattern != "*.delimobil.*" {
+		t.Fatalf("DomainRules mutated to %q", rules.DomainRules[0].Pattern)
 	}
 }
 

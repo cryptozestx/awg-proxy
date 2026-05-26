@@ -1,4 +1,4 @@
-package main
+package tunnel
 
 import (
 	dnsruntime "awg-proxy/internal/dns"
@@ -9,25 +9,25 @@ import (
 	"strings"
 )
 
-type TunnelRules struct {
+type Rules struct {
 	StaticBypass []netip.Prefix
 	DomainRules  []dnsruntime.DomainRule
 }
 
-func (r TunnelRules) HasDomainRules() bool {
+func (r Rules) HasDomainRules() bool {
 	return len(r.DomainRules) > 0
 }
 
-func (r TunnelRules) StaticBypassCIDRs() []netip.Prefix {
+func (r Rules) StaticBypassCIDRs() []netip.Prefix {
 	return append([]netip.Prefix(nil), r.StaticBypass...)
 }
 
-func (r TunnelRules) DNSDomainRules() []dnsruntime.DomainRule {
+func (r Rules) DNSDomainRules() []dnsruntime.DomainRule {
 	return append([]dnsruntime.DomainRule(nil), r.DomainRules...)
 }
 
-func LoadTunnelRules(path string) (TunnelRules, error) {
-	var rules TunnelRules
+func LoadRules(path string) (Rules, error) {
+	var rules Rules
 	if path == "" {
 		return rules, nil
 	}

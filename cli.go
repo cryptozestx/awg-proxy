@@ -1,6 +1,7 @@
 package main
 
 import (
+	"awg-proxy/internal/tunnel"
 	"flag"
 	"fmt"
 	"io"
@@ -17,15 +18,7 @@ type CLIOptions struct {
 	AppTarget   string
 	CommandArgs []string
 	AppArgs     []string
-	Tunnel      TunnelOptions
-}
-
-type TunnelOptions struct {
-	ConfigPath string
-	RulesPath  string
-	DryRun     bool
-	NoDNS      bool
-	Verbose    bool
+	Tunnel      tunnel.Options
 }
 
 func parseCLI(args []string) (CLIOptions, error) {
