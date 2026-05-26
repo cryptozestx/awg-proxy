@@ -17,3 +17,22 @@ func TestPrintUsageListsTunnelOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintUsageDoesNotDoublePrefixInjectedVersion(t *testing.T) {
+	original := Version
+	Version = "v9.9.9"
+	t.Cleanup(func() {
+		Version = original
+	})
+
+	var out bytes.Buffer
+	PrintUsage(&out)
+
+	text := out.String()
+	if !strings.Contains(text, "v9.9.9") {
+		t.Fatalf("usage output does not mention injected version:\n%s", text)
+	}
+	if strings.Contains(text, "vv9.9.9") {
+		t.Fatalf("usage output double-prefixed injected version:\n%s", text)
+	}
+}

@@ -3,9 +3,10 @@ package app
 import (
 	"fmt"
 	"io"
+	"strings"
 )
 
-const Version = "1.0.0"
+var Version = "1.0.0"
 
 func PrintUsage(w io.Writer) {
 	if w == nil {
@@ -13,7 +14,7 @@ func PrintUsage(w io.Writer) {
 	}
 
 	fmt.Fprintln(w, "\x1b[1;36m┌────────────────────────────────────────────────────────┐\x1b[0m")
-	fmt.Fprintf(w, "\x1b[1;36m│          🛠️   AWG-PROXY CLI UTILITY v%-10s         │\x1b[0m\n", Version)
+	fmt.Fprintf(w, "\x1b[1;36m│          🛠️   AWG-PROXY CLI UTILITY %-11s         │\x1b[0m\n", displayVersion())
 	fmt.Fprintln(w, "\x1b[1;36m├────────────────────────────────────────────────────────┤\x1b[0m")
 	fmt.Fprintln(w, "\x1b[1;36m│\x1b[0m  \x1b[1;33mUsage:\x1b[0m                                                \x1b[1;36m│\x1b[0m")
 	fmt.Fprintln(w, "\x1b[1;36m│\x1b[0m    awg-proxy <command> [options]                       \x1b[1;36m│\x1b[0m")
@@ -48,4 +49,11 @@ func PrintUsage(w io.Writer) {
 	fmt.Fprintln(w, "\x1b[1;36m│\x1b[0m    awg-proxy server -c vpn.conf -s 1080 -h 8080        \x1b[1;36m│\x1b[0m")
 	fmt.Fprintln(w, "\x1b[1;36m│\x1b[0m    awg-proxy tunnel -c vpn.conf --dry-run              \x1b[1;36m│\x1b[0m")
 	fmt.Fprintln(w, "\x1b[1;36m└────────────────────────────────────────────────────────┘\x1b[0m")
+}
+
+func displayVersion() string {
+	if strings.HasPrefix(Version, "v") {
+		return Version
+	}
+	return "v" + Version
 }

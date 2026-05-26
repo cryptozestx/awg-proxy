@@ -30,6 +30,9 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Test
+        run: go test ./...
+
       - name: Build
         run: go build -v -o awg-proxy ./cmd/awg-proxy
 
