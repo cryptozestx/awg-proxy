@@ -1,6 +1,6 @@
-//go:build linux
+//go:build darwin
 
-package main
+package routing
 
 import (
 	"awg-proxy/internal/platform"
@@ -51,11 +51,11 @@ func waitForRecordedCommands(t *testing.T, runner *recordingRunner, want []strin
 	}
 }
 
-func TestLinuxDynamicBypassRouteAddDelete(t *testing.T) {
+func TestDarwinDynamicBypassRouteAddDelete(t *testing.T) {
 	runner := &recordingRunner{}
-	manager := LinuxDynamicBypassRoutes{
+	manager := DarwinDynamicBypassRoutes{
 		Runner:       runner,
-		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "eth0"},
+		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"},
 	}
 
 	if err := manager.AddBypassRoute(context.Background(), netip.MustParsePrefix("198.51.100.44/32"), "dns:git.delimobil.ru", time.Minute); err != nil {
@@ -66,19 +66,19 @@ func TestLinuxDynamicBypassRouteAddDelete(t *testing.T) {
 	}
 
 	want := []string{
-		"ip route add 198.51.100.44/32 via 192.0.2.1 dev eth0",
-		"ip route del 198.51.100.44/32",
+		"route add 198.51.100.44 192.0.2.1",
+		"route delete 198.51.100.44",
 	}
 	if !reflect.DeepEqual(runner.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", runner.commands, want)
 	}
 }
 
-func TestLinuxDynamicBypassRouteExpiresAfterTTL(t *testing.T) {
+func TestDarwinDynamicBypassRouteExpiresAfterTTL(t *testing.T) {
 	runner := &recordingRunner{}
-	manager := LinuxDynamicBypassRoutes{
+	manager := DarwinDynamicBypassRoutes{
 		Runner:       runner,
-		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "eth0"},
+		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"},
 	}
 
 	if err := manager.AddBypassRoute(context.Background(), netip.MustParsePrefix("198.51.100.44/32"), "dns:git.delimobil.ru", 25*time.Millisecond); err != nil {
@@ -86,8 +86,8 @@ func TestLinuxDynamicBypassRouteExpiresAfterTTL(t *testing.T) {
 	}
 
 	want := []string{
-		"ip route add 198.51.100.44/32 via 192.0.2.1 dev eth0",
-		"ip route del 198.51.100.44/32",
+		"route add 198.51.100.44 192.0.2.1",
+		"route delete 198.51.100.44",
 	}
 	waitForRecordedCommands(t, runner, want)
 	if err := manager.Close(); err != nil {
@@ -98,11 +98,11 @@ func TestLinuxDynamicBypassRouteExpiresAfterTTL(t *testing.T) {
 	}
 }
 
-func TestLinuxDynamicBypassRouteRefreshesTTLWithoutDuplicateAdd(t *testing.T) {
+func TestDarwinDynamicBypassRouteRefreshesTTLWithoutDuplicateAdd(t *testing.T) {
 	runner := &recordingRunner{}
-	manager := LinuxDynamicBypassRoutes{
+	manager := DarwinDynamicBypassRoutes{
 		Runner:       runner,
-		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "eth0"},
+		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"},
 	}
 
 	prefix := netip.MustParsePrefix("198.51.100.44/32")
@@ -114,7 +114,7 @@ func TestLinuxDynamicBypassRouteRefreshesTTLWithoutDuplicateAdd(t *testing.T) {
 		t.Fatalf("refresh AddBypassRoute returned error: %v", err)
 	}
 
-	wantAddOnly := []string{"ip route add 198.51.100.44/32 via 192.0.2.1 dev eth0"}
+	wantAddOnly := []string{"route add 198.51.100.44 192.0.2.1"}
 	if got := runner.Commands(); !reflect.DeepEqual(got, wantAddOnly) {
 		t.Fatalf("commands after refresh = %#v, want %#v", got, wantAddOnly)
 	}
@@ -124,8 +124,8 @@ func TestLinuxDynamicBypassRouteRefreshesTTLWithoutDuplicateAdd(t *testing.T) {
 	}
 
 	wantExpired := []string{
-		"ip route add 198.51.100.44/32 via 192.0.2.1 dev eth0",
-		"ip route del 198.51.100.44/32",
+		"route add 198.51.100.44 192.0.2.1",
+		"route delete 198.51.100.44",
 	}
 	waitForRecordedCommands(t, runner, wantExpired)
 	if err := manager.Close(); err != nil {
@@ -133,11 +133,11 @@ func TestLinuxDynamicBypassRouteRefreshesTTLWithoutDuplicateAdd(t *testing.T) {
 	}
 }
 
-func TestLinuxDynamicBypassRouteFailedAddCloseDoesNotDelete(t *testing.T) {
-	runner := &recordingRunner{err: errors.New("ip route add failed")}
-	manager := LinuxDynamicBypassRoutes{
+func TestDarwinDynamicBypassRouteFailedAddCloseDoesNotDelete(t *testing.T) {
+	runner := &recordingRunner{err: errors.New("route add failed")}
+	manager := DarwinDynamicBypassRoutes{
 		Runner:       runner,
-		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "eth0"},
+		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"},
 	}
 
 	err := manager.AddBypassRoute(context.Background(), netip.MustParsePrefix("198.51.100.44/32"), "dns:git.delimobil.ru", time.Minute)
@@ -149,17 +149,17 @@ func TestLinuxDynamicBypassRouteFailedAddCloseDoesNotDelete(t *testing.T) {
 		t.Fatalf("Close returned error: %v", err)
 	}
 
-	want := []string{"ip route add 198.51.100.44/32 via 192.0.2.1 dev eth0"}
+	want := []string{"route add 198.51.100.44 192.0.2.1"}
 	if !reflect.DeepEqual(runner.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", runner.commands, want)
 	}
 }
 
-func TestLinuxDynamicBypassRouteFailedAddCanRetry(t *testing.T) {
-	runner := &recordingRunner{err: errors.New("ip route add failed")}
-	manager := LinuxDynamicBypassRoutes{
+func TestDarwinDynamicBypassRouteFailedAddCanRetry(t *testing.T) {
+	runner := &recordingRunner{err: errors.New("route add failed")}
+	manager := DarwinDynamicBypassRoutes{
 		Runner:       runner,
-		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "eth0"},
+		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"},
 	}
 
 	prefix := netip.MustParsePrefix("198.51.100.44/32")
@@ -175,20 +175,20 @@ func TestLinuxDynamicBypassRouteFailedAddCanRetry(t *testing.T) {
 	}
 
 	want := []string{
-		"ip route add 198.51.100.44/32 via 192.0.2.1 dev eth0",
-		"ip route add 198.51.100.44/32 via 192.0.2.1 dev eth0",
-		"ip route del 198.51.100.44/32",
+		"route add 198.51.100.44 192.0.2.1",
+		"route add 198.51.100.44 192.0.2.1",
+		"route delete 198.51.100.44",
 	}
 	if !reflect.DeepEqual(runner.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", runner.commands, want)
 	}
 }
 
-func TestLinuxDynamicBypassRouteSuppressesDuplicateSuccessfulAdds(t *testing.T) {
+func TestDarwinDynamicBypassRouteSuppressesDuplicateSuccessfulAdds(t *testing.T) {
 	runner := &recordingRunner{}
-	manager := LinuxDynamicBypassRoutes{
+	manager := DarwinDynamicBypassRoutes{
 		Runner:       runner,
-		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "eth0"},
+		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"},
 	}
 
 	prefix := netip.MustParsePrefix("198.51.100.44/32")
@@ -203,19 +203,19 @@ func TestLinuxDynamicBypassRouteSuppressesDuplicateSuccessfulAdds(t *testing.T) 
 	}
 
 	want := []string{
-		"ip route add 198.51.100.44/32 via 192.0.2.1 dev eth0",
-		"ip route del 198.51.100.44/32",
+		"route add 198.51.100.44 192.0.2.1",
+		"route delete 198.51.100.44",
 	}
 	if !reflect.DeepEqual(runner.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", runner.commands, want)
 	}
 }
 
-func TestLinuxDynamicBypassRouteSuppressesConcurrentDuplicateAdds(t *testing.T) {
+func TestDarwinDynamicBypassRouteSuppressesConcurrentDuplicateAdds(t *testing.T) {
 	runner := &recordingRunner{}
-	manager := LinuxDynamicBypassRoutes{
+	manager := DarwinDynamicBypassRoutes{
 		Runner:       runner,
-		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "eth0"},
+		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"},
 	}
 
 	prefix := netip.MustParsePrefix("198.51.100.44/32")
@@ -235,8 +235,8 @@ func TestLinuxDynamicBypassRouteSuppressesConcurrentDuplicateAdds(t *testing.T) 
 	}
 
 	want := []string{
-		"ip route add 198.51.100.44/32 via 192.0.2.1 dev eth0",
-		"ip route del 198.51.100.44/32",
+		"route add 198.51.100.44 192.0.2.1",
+		"route delete 198.51.100.44",
 	}
 	if !reflect.DeepEqual(runner.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", runner.commands, want)

@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package routing
 
 import (
 	"awg-proxy/internal/platform"
@@ -32,8 +32,12 @@ func (m LinuxRouteManager) DefaultRoute(ctx context.Context) (DefaultRoute, erro
 	return parseLinuxDefaultRoute(string(out))
 }
 
-func (m LinuxRouteManager) Apply(ctx context.Context, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error {
+func (m LinuxRouteManager) Apply(ctx context.Context, ifName string, plan Plan, defaultRoute DefaultRoute, cleanup Cleanup) error {
 	return linuxApplyRoutes(ctx, m.Runner, ifName, plan, defaultRoute, cleanup)
+}
+
+func NewPlatformManager(runner platform.CommandRunner) Manager {
+	return LinuxRouteManager{Runner: runner}
 }
 
 func NewPlatformDynamicBypassRoutes(defaultRoute DefaultRoute) DynamicBypassRoutes {

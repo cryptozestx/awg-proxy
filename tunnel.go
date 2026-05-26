@@ -3,6 +3,7 @@ package main
 import (
 	"awg-proxy/internal/config"
 	"awg-proxy/internal/platform"
+	"awg-proxy/internal/routing"
 	"context"
 	"errors"
 	"fmt"
@@ -19,10 +20,10 @@ const endpointLookupTimeout = 10 * time.Second
 
 type TunnelDeps struct {
 	DeviceFactory        TunnelDeviceFactory
-	RouteManager         RouteManager
+	RouteManager         routing.Manager
 	DNSManager           DNSManager
 	DomainRuntimeFactory func() DomainBypassRuntime
-	DynamicRoutesFactory DynamicBypassRouteFactory
+	DynamicRoutesFactory routing.DynamicBypassRouteFactory
 	Lookup               func(string) ([]netip.Addr, error)
 	Wait                 func(context.Context) error
 }
@@ -38,7 +39,7 @@ func RunTunnel(cfg *config.AWGConfig, opts TunnelOptions) error {
 		deps := TunnelDeps{
 			DeviceFactory: dryRunTunnelDeviceFactory{Recorder: runner},
 			RouteManager: dryRunRouteManager{
-				RouteManager: NewPlatformRouteManager(runner),
+				RouteManager: routing.NewPlatformManager(runner),
 				Recorder:     runner,
 				Fallback:     dryRunDefaultRouteFallback(),
 			},
@@ -55,7 +56,7 @@ func RunTunnel(cfg *config.AWGConfig, opts TunnelOptions) error {
 
 	deps := TunnelDeps{
 		DeviceFactory: AWGTunnelDeviceFactory{},
-		RouteManager:  NewPlatformRouteManager(platform.ExecRunner{}),
+		RouteManager:  routing.NewPlatformManager(platform.ExecRunner{}),
 		DNSManager:    NewPlatformDNSManager(platform.ExecRunner{}),
 		Lookup:        netipLookup,
 		Wait:          waitForSignal,
@@ -97,7 +98,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOp
 		deps.DomainRuntimeFactory = func() DomainBypassRuntime {
 			return dryRunDomainBypassRuntime{Recorder: recorder}
 		}
-		deps.DynamicRoutesFactory = func(DefaultRoute) DynamicBypassRoutes {
+		deps.DynamicRoutesFactory = func(routing.DefaultRoute) routing.DynamicBypassRoutes {
 			return dryRunDynamicBypassRoutes{Recorder: recorder}
 		}
 	} else if deps.DeviceFactory == nil {
@@ -119,7 +120,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOp
 		deps.DomainRuntimeFactory = NewDomainBypassRuntime
 	}
 	if deps.DynamicRoutesFactory == nil {
-		deps.DynamicRoutesFactory = NewPlatformDynamicBypassRoutes
+		deps.DynamicRoutesFactory = routing.NewPlatformDynamicBypassRoutes
 	}
 
 	tcfg, err := ValidateTunnelConfig(cfg)
@@ -201,7 +202,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOp
 	}
 	logTunnelProgress(opts, "Default route: gateway %s dev %s.", defaultRoute.Gateway, defaultRoute.Device)
 
-	plan := BuildTunnelRoutePlan(endpoint, rules)
+	plan := routing.BuildTunnelPlan(endpoint, rules)
 	logTunnelProgress(opts, "Applying tunnel routes...")
 	if err := deps.RouteManager.Apply(ctx, dev.Name(), plan, defaultRoute, cleanup); err != nil {
 		return err
@@ -240,7 +241,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOp
 }
 
 type staticAwareDynamicBypassRoutes struct {
-	DynamicBypassRoutes
+	routing.DynamicBypassRoutes
 	staticBypassCIDRs []netip.Prefix
 }
 
@@ -344,9 +345,9 @@ func (d dryRunTunnelDevice) Close() error {
 }
 
 type dryRunRouteManager struct {
-	RouteManager RouteManager
+	RouteManager routing.Manager
 	Recorder     DryRunRecorder
-	Fallback     DefaultRoute
+	Fallback     routing.DefaultRoute
 }
 
 func (m dryRunRouteManager) ConfigureInterface(ctx context.Context, ifName string, addr netip.Prefix, mtu int) error {
@@ -359,7 +360,7 @@ func (m dryRunRouteManager) ConfigureInterface(ctx context.Context, ifName strin
 	return nil
 }
 
-func (m dryRunRouteManager) DefaultRoute(ctx context.Context) (DefaultRoute, error) {
+func (m dryRunRouteManager) DefaultRoute(ctx context.Context) (routing.DefaultRoute, error) {
 	if m.RouteManager == nil {
 		return m.defaultRouteFallback(nil), nil
 	}
@@ -372,7 +373,7 @@ func (m dryRunRouteManager) DefaultRoute(ctx context.Context) (DefaultRoute, err
 	return m.defaultRouteFallback(err), nil
 }
 
-func (m dryRunRouteManager) defaultRouteFallback(discoveryErr error) DefaultRoute {
+func (m dryRunRouteManager) defaultRouteFallback(discoveryErr error) routing.DefaultRoute {
 	fallback := m.Fallback
 	if !fallback.Gateway.IsValid() || fallback.Device == "" {
 		fallback = dryRunDefaultRouteFallback()
@@ -383,7 +384,7 @@ func (m dryRunRouteManager) defaultRouteFallback(discoveryErr error) DefaultRout
 	return fallback
 }
 
-func (m dryRunRouteManager) Apply(ctx context.Context, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error {
+func (m dryRunRouteManager) Apply(ctx context.Context, ifName string, plan routing.Plan, defaultRoute routing.DefaultRoute, cleanup routing.Cleanup) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -428,8 +429,8 @@ func (m dryRunRouteManager) Apply(ctx context.Context, ifName string, plan Route
 	return nil
 }
 
-func dryRunDefaultRouteFallback() DefaultRoute {
-	return DefaultRoute{
+func dryRunDefaultRouteFallback() routing.DefaultRoute {
+	return routing.DefaultRoute{
 		Gateway: netip.MustParseAddr("192.0.2.254"),
 		Device:  "default0",
 	}
@@ -492,7 +493,7 @@ func (r dryRunDomainBypassRuntime) Close() error {
 	return nil
 }
 
-func (r dryRunDomainBypassRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes DynamicBypassRoutes) error {
+func (r dryRunDomainBypassRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes routing.DynamicBypassRoutes) error {
 	return ctx.Err()
 }
 

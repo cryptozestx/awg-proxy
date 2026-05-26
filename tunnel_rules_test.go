@@ -23,8 +23,11 @@ exclude_cidr = 198.51.100.0/24
 		netip.MustParsePrefix("203.0.113.10/32"),
 		netip.MustParsePrefix("198.51.100.0/24"),
 	}
-	if !reflect.DeepEqual(rules.StaticBypassCIDRs, want) {
-		t.Fatalf("StaticBypassCIDRs = %v, want %v", rules.StaticBypassCIDRs, want)
+	if !reflect.DeepEqual(rules.StaticBypass, want) {
+		t.Fatalf("StaticBypass = %v, want %v", rules.StaticBypass, want)
+	}
+	if !reflect.DeepEqual(rules.StaticBypassCIDRs(), want) {
+		t.Fatalf("StaticBypassCIDRs() = %v, want %v", rules.StaticBypassCIDRs(), want)
 	}
 }
 
@@ -33,8 +36,8 @@ func TestLoadTunnelRulesEmptyPathReturnsEmptyRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTunnelRules returned error: %v", err)
 	}
-	if len(rules.StaticBypassCIDRs) != 0 {
-		t.Fatalf("StaticBypassCIDRs = %v, want empty", rules.StaticBypassCIDRs)
+	if len(rules.StaticBypass) != 0 {
+		t.Fatalf("StaticBypass = %v, want empty", rules.StaticBypass)
 	}
 	if len(rules.DomainRules) != 0 {
 		t.Fatalf("DomainRules = %v, want empty", rules.DomainRules)

@@ -9,8 +9,8 @@ import (
 )
 
 type TunnelRules struct {
-	StaticBypassCIDRs []netip.Prefix
-	DomainRules       []DomainRule
+	StaticBypass []netip.Prefix
+	DomainRules  []DomainRule
 }
 
 type DomainRule struct {
@@ -19,6 +19,10 @@ type DomainRule struct {
 
 func (r TunnelRules) HasDomainRules() bool {
 	return len(r.DomainRules) > 0
+}
+
+func (r TunnelRules) StaticBypassCIDRs() []netip.Prefix {
+	return append([]netip.Prefix(nil), r.StaticBypass...)
 }
 
 func (r DomainRule) Matches(host string) bool {
@@ -74,7 +78,7 @@ func LoadTunnelRules(path string) (TunnelRules, error) {
 			if !addr.Is4() {
 				return rules, fmt.Errorf("parse tunnel rules %s:%d: exclude_ip must be IPv4: %s", path, lineNo, value)
 			}
-			rules.StaticBypassCIDRs = append(rules.StaticBypassCIDRs, netip.PrefixFrom(addr, 32))
+			rules.StaticBypass = append(rules.StaticBypass, netip.PrefixFrom(addr, 32))
 		case "exclude_cidr":
 			prefix, err := netip.ParsePrefix(value)
 			if err != nil {
@@ -83,7 +87,7 @@ func LoadTunnelRules(path string) (TunnelRules, error) {
 			if !prefix.Addr().Is4() {
 				return rules, fmt.Errorf("parse tunnel rules %s:%d: exclude_cidr must be IPv4: %s", path, lineNo, value)
 			}
-			rules.StaticBypassCIDRs = append(rules.StaticBypassCIDRs, prefix.Masked())
+			rules.StaticBypass = append(rules.StaticBypass, prefix.Masked())
 		case "exclude_domain":
 			rules.DomainRules = append(rules.DomainRules, DomainRule{Pattern: normalizeDomainPattern(value)})
 		default:

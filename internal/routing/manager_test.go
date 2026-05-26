@@ -1,4 +1,4 @@
-package main
+package routing
 
 import (
 	"awg-proxy/internal/platform"
@@ -15,6 +15,27 @@ type fakeRouteRunner struct {
 	runErrAt   int
 	runCount   int
 	runRecords []string
+}
+
+type testCleanupStack struct {
+	actions []func() error
+}
+
+func newTestCleanupStack() *testCleanupStack {
+	return &testCleanupStack{}
+}
+
+func (s *testCleanupStack) Add(_ string, fn func() error) {
+	s.actions = append(s.actions, fn)
+}
+
+func (s *testCleanupStack) Run() error {
+	for i := len(s.actions) - 1; i >= 0; i-- {
+		if err := s.actions[i](); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *fakeRouteRunner) Run(_ context.Context, name string, args ...string) error {
@@ -111,7 +132,7 @@ func TestParseDarwinDefaultRoute(t *testing.T) {
 
 func TestDarwinApplyCommandSequenceAndCleanup(t *testing.T) {
 	runner := &fakeRouteRunner{}
-	cleanup := NewCleanupStack()
+	cleanup := newTestCleanupStack()
 	plan := routeManagerTestPlan()
 
 	if err := darwinApplyRoutes(context.Background(), runner, "utun7", plan, routeManagerDefaultRoute(), cleanup); err != nil {
@@ -142,7 +163,7 @@ func TestDarwinApplyCommandSequenceAndCleanup(t *testing.T) {
 
 func TestLinuxApplyCommandSequenceAndCleanup(t *testing.T) {
 	runner := &fakeRouteRunner{}
-	cleanup := NewCleanupStack()
+	cleanup := newTestCleanupStack()
 	plan := routeManagerTestPlan()
 
 	if err := linuxApplyRoutes(context.Background(), runner, "tun0", plan, routeManagerDefaultRoute(), cleanup); err != nil {
@@ -173,8 +194,8 @@ func TestLinuxApplyCommandSequenceAndCleanup(t *testing.T) {
 
 func TestDarwinApplyRoutesIncludesStaticBypass(t *testing.T) {
 	runner := &fakeRouteRunner{}
-	cleanup := NewCleanupStack()
-	plan := RoutePlan{
+	cleanup := newTestCleanupStack()
+	plan := Plan{
 		TunnelCIDRs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1")},
 		StaticBypassCIDRs: []netip.Prefix{
 			netip.MustParsePrefix("198.51.100.0/24"),
@@ -201,8 +222,8 @@ func TestDarwinApplyRoutesIncludesStaticBypass(t *testing.T) {
 
 func TestLinuxApplyRoutesIncludesStaticBypass(t *testing.T) {
 	runner := &fakeRouteRunner{}
-	cleanup := NewCleanupStack()
-	plan := RoutePlan{
+	cleanup := newTestCleanupStack()
+	plan := Plan{
 		TunnelCIDRs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1")},
 		StaticBypassCIDRs: []netip.Prefix{
 			netip.MustParsePrefix("198.51.100.0/24"),
@@ -229,7 +250,7 @@ func TestLinuxApplyRoutesIncludesStaticBypass(t *testing.T) {
 
 func TestDarwinApplyFailureCleansOnlySuccessfulAdds(t *testing.T) {
 	runner := &fakeRouteRunner{runErrAt: 2}
-	cleanup := NewCleanupStack()
+	cleanup := newTestCleanupStack()
 
 	err := darwinApplyRoutes(context.Background(), runner, "utun7", routeManagerTestPlan(), routeManagerDefaultRoute(), cleanup)
 	if err == nil {
@@ -252,8 +273,8 @@ func TestDarwinApplyFailureCleansOnlySuccessfulAdds(t *testing.T) {
 	}
 }
 
-func routeManagerTestPlan() RoutePlan {
-	return BuildFullTunnelRoutePlan(netip.MustParseAddrPort("203.0.113.10:51820"))
+func routeManagerTestPlan() Plan {
+	return BuildFullTunnelPlan(netip.MustParseAddrPort("203.0.113.10:51820"))
 }
 
 func routeManagerDefaultRoute() DefaultRoute {

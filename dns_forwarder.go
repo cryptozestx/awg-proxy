@@ -1,6 +1,7 @@
 package main
 
 import (
+	"awg-proxy/internal/routing"
 	"context"
 	"errors"
 	"fmt"
@@ -20,7 +21,7 @@ type DomainBypassConfig struct {
 	ListenAddr string
 	Upstream   string
 	Rules      TunnelRules
-	Routes     DynamicBypassRoutes
+	Routes     routing.DynamicBypassRoutes
 }
 
 type DNSAnswer struct {
@@ -43,7 +44,7 @@ type DomainBypassRuntime interface {
 	Start(ctx context.Context, config DomainBypassConfig) error
 	Addr() string
 	Close() error
-	HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes DynamicBypassRoutes) error
+	HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes routing.DynamicBypassRoutes) error
 }
 
 type DNSDomainBypassRuntime struct {
@@ -214,7 +215,7 @@ func isExpectedDNSServerClose(err error) bool {
 		strings.Contains(err.Error(), "Server closed")
 }
 
-func (r *DNSDomainBypassRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes DynamicBypassRoutes) error {
+func (r *DNSDomainBypassRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes routing.DynamicBypassRoutes) error {
 	if routes == nil {
 		return nil
 	}

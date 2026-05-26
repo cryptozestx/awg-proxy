@@ -2,6 +2,7 @@ package main
 
 import (
 	"awg-proxy/internal/platform"
+	"awg-proxy/internal/routing"
 	"context"
 	"errors"
 	"io"
@@ -56,7 +57,7 @@ type fakeRouteManager struct {
 	defaults   int
 	defaultErr error
 	applyErr   error
-	lastPlan   RoutePlan
+	lastPlan   routing.Plan
 }
 
 func (m *fakeRouteManager) ConfigureInterface(ctx context.Context, ifName string, addr netip.Prefix, mtu int) error {
@@ -64,15 +65,15 @@ func (m *fakeRouteManager) ConfigureInterface(ctx context.Context, ifName string
 	return ctx.Err()
 }
 
-func (m *fakeRouteManager) DefaultRoute(ctx context.Context) (DefaultRoute, error) {
+func (m *fakeRouteManager) DefaultRoute(ctx context.Context) (routing.DefaultRoute, error) {
 	m.defaults++
 	if m.defaultErr != nil {
-		return DefaultRoute{}, m.defaultErr
+		return routing.DefaultRoute{}, m.defaultErr
 	}
-	return DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"}, ctx.Err()
+	return routing.DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"}, ctx.Err()
 }
 
-func (m *fakeRouteManager) Apply(ctx context.Context, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error {
+func (m *fakeRouteManager) Apply(ctx context.Context, ifName string, plan routing.Plan, defaultRoute routing.DefaultRoute, cleanup routing.Cleanup) error {
 	m.calls = append(m.calls, "routes:"+ifName)
 	m.lastPlan = plan
 	cleanup.Add("routes", func() error {
@@ -133,7 +134,7 @@ func (r *fakeDomainRuntime) Close() error {
 	return nil
 }
 
-func (r *fakeDomainRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes DynamicBypassRoutes) error {
+func (r *fakeDomainRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes routing.DynamicBypassRoutes) error {
 	return ctx.Err()
 }
 
@@ -250,7 +251,7 @@ func TestRunTunnelStartsDomainRuntimeBeforeApplyingDNS(t *testing.T) {
 	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
 		return runtime
 	}
-	deps.DynamicRoutesFactory = func(DefaultRoute) DynamicBypassRoutes {
+	deps.DynamicRoutesFactory = func(routing.DefaultRoute) routing.DynamicBypassRoutes {
 		return dynamicRoutes
 	}
 	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
@@ -302,7 +303,7 @@ func TestRunTunnelDomainRoutesSkipStaticCoveredPrefix(t *testing.T) {
 	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
 		return runtime
 	}
-	deps.DynamicRoutesFactory = func(DefaultRoute) DynamicBypassRoutes {
+	deps.DynamicRoutesFactory = func(routing.DefaultRoute) routing.DynamicBypassRoutes {
 		return dynamicRoutes
 	}
 	path := writeTempRules(t, `
@@ -403,7 +404,7 @@ func TestRunTunnelDryRunDomainRulesDoNotUseInjectedRuntimeFactories(t *testing.T
 	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
 		panic("dry-run called injected domain runtime factory")
 	}
-	deps.DynamicRoutesFactory = func(DefaultRoute) DynamicBypassRoutes {
+	deps.DynamicRoutesFactory = func(routing.DefaultRoute) routing.DynamicBypassRoutes {
 		panic("dry-run called injected dynamic route factory")
 	}
 	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
@@ -433,7 +434,7 @@ func TestRunTunnelDomainRuntimeUsesBracketedIPv6DNSUpstream(t *testing.T) {
 	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
 		return runtime
 	}
-	deps.DynamicRoutesFactory = func(DefaultRoute) DynamicBypassRoutes {
+	deps.DynamicRoutesFactory = func(routing.DefaultRoute) routing.DynamicBypassRoutes {
 		return dynamicRoutes
 	}
 	cfg := validTunnelConfig()
@@ -454,7 +455,7 @@ func TestDryRunRouteManagerFallsBackWhenDefaultRouteDiscoveryFails(t *testing.T)
 	discoveryErr := errors.New("route discovery failed")
 	routes := &fakeRouteManager{defaultErr: discoveryErr}
 	recorder := platform.NewDryRunRunner()
-	fallback := DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.254"), Device: "default0"}
+	fallback := routing.DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.254"), Device: "default0"}
 	manager := dryRunRouteManager{
 		RouteManager: routes,
 		Recorder:     recorder,
@@ -482,7 +483,7 @@ func TestDryRunRouteManagerRecordsStaticBypass(t *testing.T) {
 		Fallback: dryRunDefaultRouteFallback(),
 	}
 	cleanup := NewCleanupStack()
-	plan := RoutePlan{
+	plan := routing.Plan{
 		TunnelCIDRs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1")},
 		StaticBypassCIDRs: []netip.Prefix{
 			netip.MustParsePrefix("198.51.100.0/24"),

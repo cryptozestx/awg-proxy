@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package routing
 
 import (
 	"awg-proxy/internal/platform"
@@ -31,8 +31,12 @@ func (m DarwinRouteManager) DefaultRoute(ctx context.Context) (DefaultRoute, err
 	return parseDarwinDefaultRoute(string(out))
 }
 
-func (m DarwinRouteManager) Apply(ctx context.Context, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error {
+func (m DarwinRouteManager) Apply(ctx context.Context, ifName string, plan Plan, defaultRoute DefaultRoute, cleanup Cleanup) error {
 	return darwinApplyRoutes(ctx, m.Runner, ifName, plan, defaultRoute, cleanup)
+}
+
+func NewPlatformManager(runner platform.CommandRunner) Manager {
+	return DarwinRouteManager{Runner: runner}
 }
 
 func NewPlatformDynamicBypassRoutes(defaultRoute DefaultRoute) DynamicBypassRoutes {

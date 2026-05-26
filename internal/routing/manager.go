@@ -1,4 +1,4 @@
-package main
+package routing
 
 import (
 	"context"
@@ -11,10 +11,14 @@ type DefaultRoute struct {
 	Device  string
 }
 
-type RouteManager interface {
+type Manager interface {
 	ConfigureInterface(ctx context.Context, ifName string, addr netip.Prefix, mtu int) error
 	DefaultRoute(ctx context.Context) (DefaultRoute, error)
-	Apply(ctx context.Context, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error
+	Apply(ctx context.Context, ifName string, plan Plan, defaultRoute DefaultRoute, cleanup Cleanup) error
+}
+
+type Cleanup interface {
+	Add(name string, fn func() error)
 }
 
 type DynamicBypassRoutes interface {
