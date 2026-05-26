@@ -34,6 +34,10 @@ func (m DarwinRouteManager) Apply(ctx context.Context, ifName string, plan Route
 	return darwinApplyRoutes(ctx, m.Runner, ifName, plan, defaultRoute, cleanup)
 }
 
+func NewPlatformDynamicBypassRoutes(defaultRoute DefaultRoute) DynamicBypassRoutes {
+	return &DarwinDynamicBypassRoutes{Runner: ExecRunner{}, DefaultRoute: defaultRoute}
+}
+
 type DarwinDynamicBypassRoutes struct {
 	Runner       CommandRunner
 	DefaultRoute DefaultRoute

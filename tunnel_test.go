@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeTunnelDevice struct {
@@ -96,6 +97,44 @@ func (m *fakeDNSManager) Apply(ctx context.Context, servers []string, cleanup *C
 	return ctx.Err()
 }
 
+type fakeDomainRuntime struct {
+	calls  *[]string
+	config DomainBypassConfig
+}
+
+func (r *fakeDomainRuntime) Start(ctx context.Context, config DomainBypassConfig) error {
+	*r.calls = append(*r.calls, "domain-runtime-start")
+	r.config = config
+	return ctx.Err()
+}
+
+func (r *fakeDomainRuntime) Addr() string {
+	return "127.0.0.1:5353"
+}
+
+func (r *fakeDomainRuntime) Close() error {
+	*r.calls = append(*r.calls, "domain-runtime-close")
+	return nil
+}
+
+func (r *fakeDomainRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes DynamicBypassRoutes) error {
+	return ctx.Err()
+}
+
+type fakeDynamicRoutes struct {
+	calls *[]string
+}
+
+func (r *fakeDynamicRoutes) AddBypassRoute(ctx context.Context, prefix netip.Prefix, reason string, ttl time.Duration) error {
+	*r.calls = append(*r.calls, "dynamic-route-add:"+prefix.String())
+	return ctx.Err()
+}
+
+func (r *fakeDynamicRoutes) Close() error {
+	*r.calls = append(*r.calls, "dynamic-routes-close")
+	return nil
+}
+
 func fakeTunnelDeps(dev *fakeTunnelDevice, routes *fakeRouteManager, dns *fakeDNSManager) TunnelDeps {
 	return TunnelDeps{
 		DeviceFactory: &fakeTunnelDeviceFactory{dev: dev},
@@ -180,6 +219,50 @@ func TestRunTunnelRejectsDomainRulesWithNoDNSBeforeDeviceSetup(t *testing.T) {
 	}
 	if factory.called {
 		t.Fatalf("device factory was called before domain/no-dns validation failed")
+	}
+}
+
+func TestRunTunnelStartsDomainRuntimeBeforeApplyingDNS(t *testing.T) {
+	dev := &fakeTunnelDevice{name: "utun99"}
+	routes := &fakeRouteManager{}
+	dns := &fakeDNSManager{}
+	deps := fakeTunnelDeps(dev, routes, dns)
+	var calls []string
+	runtime := &fakeDomainRuntime{calls: &calls}
+	dynamicRoutes := &fakeDynamicRoutes{calls: &calls}
+	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
+		return runtime
+	}
+	deps.DynamicRoutesFactory = func(DefaultRoute) DynamicBypassRoutes {
+		return dynamicRoutes
+	}
+	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
+
+	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{RulesPath: path}, deps)
+	if err != nil {
+		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(dns.servers, []string{"127.0.0.1"}) {
+		t.Fatalf("DNS servers = %v, want [127.0.0.1]", dns.servers)
+	}
+	if !reflect.DeepEqual(calls, []string{"domain-runtime-start", "domain-runtime-close", "dynamic-routes-close"}) {
+		t.Fatalf("domain calls = %v, want runtime start before cleanup", calls)
+	}
+	if runtime.config.ListenAddr != "127.0.0.1:53" {
+		t.Fatalf("ListenAddr = %q, want 127.0.0.1:53", runtime.config.ListenAddr)
+	}
+	if runtime.config.Upstream != "1.1.1.1:53" {
+		t.Fatalf("Upstream = %q, want 1.1.1.1:53", runtime.config.Upstream)
+	}
+	if len(runtime.config.Rules.DomainRules) != 1 || runtime.config.Rules.DomainRules[0].Pattern != "*.delimobil.*" {
+		t.Fatalf("DomainRules = %#v, want *.delimobil.*", runtime.config.Rules.DomainRules)
+	}
+	if runtime.config.Routes == nil {
+		t.Fatalf("Routes is nil")
+	}
+	if runtime.config.Routes != dynamicRoutes {
+		t.Fatalf("Routes = %#v, want injected dynamic routes", runtime.config.Routes)
 	}
 }
 

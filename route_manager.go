@@ -21,3 +21,5 @@ type DynamicBypassRoutes interface {
 	AddBypassRoute(ctx context.Context, prefix netip.Prefix, reason string, ttl time.Duration) error
 	Close() error
 }
+
+type DynamicBypassRouteFactory func(DefaultRoute) DynamicBypassRoutes

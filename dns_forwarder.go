@@ -39,7 +39,14 @@ type dnsCNAMERecord struct {
 	ttl    uint32
 }
 
-type DomainBypassRuntime struct {
+type DomainBypassRuntime interface {
+	Start(ctx context.Context, config DomainBypassConfig) error
+	Addr() string
+	Close() error
+	HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes DynamicBypassRoutes) error
+}
+
+type DNSDomainBypassRuntime struct {
 	mu     sync.Mutex
 	server *dns.Server
 	addr   string
@@ -49,11 +56,11 @@ type DomainBypassRuntime struct {
 	cancel context.CancelFunc
 }
 
-func NewDomainBypassRuntime() *DomainBypassRuntime {
-	return &DomainBypassRuntime{}
+func NewDomainBypassRuntime() DomainBypassRuntime {
+	return &DNSDomainBypassRuntime{}
 }
 
-func (r *DomainBypassRuntime) Start(ctx context.Context, config DomainBypassConfig) error {
+func (r *DNSDomainBypassRuntime) Start(ctx context.Context, config DomainBypassConfig) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -124,7 +131,7 @@ func (r *DomainBypassRuntime) Start(ctx context.Context, config DomainBypassConf
 	}
 }
 
-func (r *DomainBypassRuntime) cancelStartup(ctx context.Context, server *dns.Server, packetConn net.PacketConn, done <-chan error, cancel context.CancelFunc) error {
+func (r *DNSDomainBypassRuntime) cancelStartup(ctx context.Context, server *dns.Server, packetConn net.PacketConn, done <-chan error, cancel context.CancelFunc) error {
 	r.mu.Lock()
 	r.clearIfServerLocked(server)
 	r.mu.Unlock()
@@ -144,13 +151,13 @@ func (r *DomainBypassRuntime) cancelStartup(ctx context.Context, server *dns.Ser
 	return ctx.Err()
 }
 
-func (r *DomainBypassRuntime) Addr() string {
+func (r *DNSDomainBypassRuntime) Addr() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.addr
 }
 
-func (r *DomainBypassRuntime) Close() error {
+func (r *DNSDomainBypassRuntime) Close() error {
 	r.mu.Lock()
 	server := r.server
 	done := r.done
@@ -188,7 +195,7 @@ func (r *DomainBypassRuntime) Close() error {
 	return nil
 }
 
-func (r *DomainBypassRuntime) clearIfServerLocked(server *dns.Server) {
+func (r *DNSDomainBypassRuntime) clearIfServerLocked(server *dns.Server) {
 	if r.server != server {
 		return
 	}
@@ -207,7 +214,7 @@ func isExpectedDNSServerClose(err error) bool {
 		strings.Contains(err.Error(), "Server closed")
 }
 
-func (r *DomainBypassRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes DynamicBypassRoutes) error {
+func (r *DNSDomainBypassRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes DynamicBypassRoutes) error {
 	if routes == nil {
 		return nil
 	}
@@ -238,7 +245,7 @@ func domainRulesMatch(rules []DomainRule, host string) bool {
 	return false
 }
 
-func (r *DomainBypassRuntime) handleDNS(w dns.ResponseWriter, req *dns.Msg) {
+func (r *DNSDomainBypassRuntime) handleDNS(w dns.ResponseWriter, req *dns.Msg) {
 	if req == nil {
 		if w != nil {
 			_ = w.WriteMsg(serverFailure(nil))

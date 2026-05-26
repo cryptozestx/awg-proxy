@@ -35,6 +35,10 @@ func (m LinuxRouteManager) Apply(ctx context.Context, ifName string, plan RouteP
 	return linuxApplyRoutes(ctx, m.Runner, ifName, plan, defaultRoute, cleanup)
 }
 
+func NewPlatformDynamicBypassRoutes(defaultRoute DefaultRoute) DynamicBypassRoutes {
+	return &LinuxDynamicBypassRoutes{Runner: ExecRunner{}, DefaultRoute: defaultRoute}
+}
+
 type LinuxDynamicBypassRoutes struct {
 	Runner       CommandRunner
 	DefaultRoute DefaultRoute

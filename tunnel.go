@@ -13,11 +13,13 @@ import (
 )
 
 type TunnelDeps struct {
-	DeviceFactory TunnelDeviceFactory
-	RouteManager  RouteManager
-	DNSManager    DNSManager
-	Lookup        func(string) ([]netip.Addr, error)
-	Wait          func(context.Context) error
+	DeviceFactory        TunnelDeviceFactory
+	RouteManager         RouteManager
+	DNSManager           DNSManager
+	DomainRuntimeFactory func() DomainBypassRuntime
+	DynamicRoutesFactory DynamicBypassRouteFactory
+	Lookup               func(string) ([]netip.Addr, error)
+	Wait                 func(context.Context) error
 }
 
 type DryRunRecorder interface {
@@ -101,6 +103,12 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 	if deps.Wait == nil {
 		return fmt.Errorf("tunnel dependency Wait is nil")
 	}
+	if deps.DomainRuntimeFactory == nil {
+		deps.DomainRuntimeFactory = NewDomainBypassRuntime
+	}
+	if deps.DynamicRoutesFactory == nil {
+		deps.DynamicRoutesFactory = NewPlatformDynamicBypassRoutes
+	}
 
 	tcfg, err := ValidateTunnelConfig(cfg)
 	if err != nil {
@@ -167,6 +175,22 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 	plan := BuildTunnelRoutePlan(endpoint, rules)
 	if err := deps.RouteManager.Apply(ctx, dev.Name(), plan, defaultRoute, cleanup); err != nil {
 		return err
+	}
+
+	if rules.HasDomainRules() {
+		dynamicRoutes := deps.DynamicRoutesFactory(defaultRoute)
+		cleanup.Add("delete dynamic domain bypass routes", dynamicRoutes.Close)
+		runtime := deps.DomainRuntimeFactory()
+		if err := runtime.Start(ctx, DomainBypassConfig{
+			ListenAddr: "127.0.0.1:53",
+			Upstream:   dnsServers[0] + ":53",
+			Rules:      rules,
+			Routes:     dynamicRoutes,
+		}); err != nil {
+			return err
+		}
+		cleanup.Add("stop domain bypass DNS runtime", runtime.Close)
+		dnsServers = []string{"127.0.0.1"}
 	}
 
 	if !opts.NoDNS {
