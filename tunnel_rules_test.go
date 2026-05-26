@@ -59,6 +59,48 @@ func TestLoadTunnelRulesRejectsUnknownKey(t *testing.T) {
 	}
 }
 
+func TestDomainRuleMatchesDelimobilWildcard(t *testing.T) {
+	rule := DomainRule{Pattern: "*.delimobil.*"}
+
+	matches := []string{
+		"git.delimobil.ru",
+		"ride-frontend-mobile.st.delimobil.ru",
+		"GIT.DELIMOBIL.RU.",
+	}
+	for _, host := range matches {
+		if !rule.Matches(host) {
+			t.Fatalf("Matches(%q) = false, want true", host)
+		}
+	}
+
+	nonMatches := []string{
+		"ya.ru",
+		"openai.com",
+		"delimobil.ru",
+		"git.delimobil",
+	}
+	for _, host := range nonMatches {
+		if rule.Matches(host) {
+			t.Fatalf("Matches(%q) = true, want false", host)
+		}
+	}
+}
+
+func TestTunnelRulesHasDomainRules(t *testing.T) {
+	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
+
+	rules, err := LoadTunnelRules(path)
+	if err != nil {
+		t.Fatalf("LoadTunnelRules returned error: %v", err)
+	}
+	if len(rules.DomainRules) != 1 {
+		t.Fatalf("DomainRules len = %d, want 1", len(rules.DomainRules))
+	}
+	if !rules.HasDomainRules() {
+		t.Fatalf("HasDomainRules = false, want true")
+	}
+}
+
 func writeTempRules(t *testing.T, contents string) string {
 	t.Helper()
 	dir := t.TempDir()

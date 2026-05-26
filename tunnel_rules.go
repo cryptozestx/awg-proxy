@@ -17,6 +17,19 @@ type DomainRule struct {
 	Pattern string
 }
 
+func (r TunnelRules) HasDomainRules() bool {
+	return len(r.DomainRules) > 0
+}
+
+func (r DomainRule) Matches(host string) bool {
+	pattern := normalizeDomainPattern(r.Pattern)
+	host = normalizeDomainPattern(host)
+	if pattern == "" || host == "" {
+		return false
+	}
+	return matchDomainGlob(pattern, host)
+}
+
 func LoadTunnelRules(path string) (TunnelRules, error) {
 	var rules TunnelRules
 	if path == "" {
@@ -86,4 +99,25 @@ func LoadTunnelRules(path string) (TunnelRules, error) {
 
 func normalizeDomainPattern(pattern string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(pattern)), ".")
+}
+
+func matchDomainGlob(pattern, host string) bool {
+	pParts := strings.Split(pattern, ".")
+	hParts := strings.Split(host, ".")
+	return matchDomainParts(pParts, hParts)
+}
+
+func matchDomainParts(pattern, host []string) bool {
+	if len(pattern) == 0 {
+		return len(host) == 0
+	}
+	if pattern[0] != "*" {
+		return len(host) > 0 && pattern[0] == host[0] && matchDomainParts(pattern[1:], host[1:])
+	}
+	for consumed := 1; consumed <= len(host); consumed++ {
+		if matchDomainParts(pattern[1:], host[consumed:]) {
+			return true
+		}
+	}
+	return false
 }
