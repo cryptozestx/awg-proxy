@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const endpointLookupTimeout = 10 * time.Second
+
 type TunnelDeps struct {
 	DeviceFactory        TunnelDeviceFactory
 	RouteManager         RouteManager
@@ -122,18 +124,25 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 	if err != nil {
 		return err
 	}
+	logTunnelProgress(opts, "Tunnel config validated: interface %s, endpoint %s:%d.", tcfg.InterfaceIPv4, tcfg.EndpointHost, tcfg.EndpointPort)
 
+	logTunnelProgress(opts, "Resolving endpoint %s...", tcfg.EndpointHost)
 	endpoint, err := ResolveEndpointIPv4(tcfg.EndpointHost, tcfg.EndpointPort, deps.Lookup)
 	if err != nil {
 		return err
 	}
+	logTunnelProgress(opts, "Endpoint resolved: %s.", endpoint)
 
 	dnsServers := cfg.Interface.DNS
 	if !opts.NoDNS {
+		logTunnelProgress(opts, "Validating DNS servers...")
 		dnsServers, err = tunnelDNSServers(cfg.Interface.DNS)
 		if err != nil {
 			return err
 		}
+		logTunnelProgress(opts, "DNS servers validated: %s.", strings.Join(dnsServers, ", "))
+	} else {
+		logTunnelProgress(opts, "DNS changes disabled.")
 	}
 
 	rules, err := LoadTunnelRules(opts.RulesPath)
@@ -148,6 +157,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 	if mtu <= 0 {
 		mtu = 1420
 	}
+	logTunnelProgress(opts, "Using MTU %d.", mtu)
 
 	cleanup := NewCleanupStack()
 	defer func() {
@@ -157,33 +167,44 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 		}
 	}()
 
+	logTunnelProgress(opts, "Creating native TUN device %s...", defaultTunnelName())
 	dev, err := deps.DeviceFactory.Create(defaultTunnelName(), mtu, opts.Verbose)
 	if err != nil {
 		return fmt.Errorf("create tunnel device: %w", err)
 	}
 	cleanup.Add("close tunnel device", dev.Close)
+	logTunnelProgress(opts, "Created native TUN device %s.", dev.Name())
 
+	logTunnelProgress(opts, "Configuring interface %s...", dev.Name())
 	if err := deps.RouteManager.ConfigureInterface(ctx, dev.Name(), tcfg.InterfaceIPv4, mtu); err != nil {
 		return err
 	}
+	logTunnelProgress(opts, "Interface %s configured.", dev.Name())
 
+	logTunnelProgress(opts, "Building resolved AmneziaWG config...")
 	uapi, err := BuildResolvedTunnelUAPI(cfg, endpoint)
 	if err != nil {
 		return err
 	}
+	logTunnelProgress(opts, "Starting AmneziaWG device...")
 	if err := dev.Up(uapi); err != nil {
 		return err
 	}
+	logTunnelProgress(opts, "AmneziaWG device started.")
 
+	logTunnelProgress(opts, "Discovering default route...")
 	defaultRoute, err := deps.RouteManager.DefaultRoute(ctx)
 	if err != nil {
 		return err
 	}
+	logTunnelProgress(opts, "Default route: gateway %s dev %s.", defaultRoute.Gateway, defaultRoute.Device)
 
 	plan := BuildTunnelRoutePlan(endpoint, rules)
+	logTunnelProgress(opts, "Applying tunnel routes...")
 	if err := deps.RouteManager.Apply(ctx, dev.Name(), plan, defaultRoute, cleanup); err != nil {
 		return err
 	}
+	logTunnelProgress(opts, "Tunnel routes applied.")
 
 	if rules.HasDomainRules() {
 		dynamicRoutes := staticAwareDynamicBypassRoutes{
@@ -205,11 +226,14 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 	}
 
 	if !opts.NoDNS {
+		logTunnelProgress(opts, "Applying DNS settings...")
 		if err := deps.DNSManager.Apply(ctx, dnsServers, cleanup); err != nil {
 			return err
 		}
+		logTunnelProgress(opts, "DNS settings applied.")
 	}
 
+	logTunnelProgress(opts, "Tunnel is up. Press Ctrl+C to stop.")
 	return deps.Wait(ctx)
 }
 
@@ -241,7 +265,16 @@ func waitForSignal(ctx context.Context) error {
 }
 
 func netipLookup(host string) ([]netip.Addr, error) {
-	return net.DefaultResolver.LookupNetIP(context.Background(), "ip", host)
+	ctx, cancel := context.WithTimeout(context.Background(), endpointLookupTimeout)
+	defer cancel()
+	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+}
+
+func logTunnelProgress(opts TunnelOptions, format string, args ...any) {
+	if opts.DryRun {
+		return
+	}
+	fmt.Printf("[awg-proxy] "+format+"\n", args...)
 }
 
 func tunnelDNSServers(servers []string) ([]string, error) {

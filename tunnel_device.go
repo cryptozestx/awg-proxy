@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/netip"
+	"os"
 
 	"github.com/amnezia-vpn/amneziawg-go/conn"
 	"github.com/amnezia-vpn/amneziawg-go/device"
@@ -30,6 +31,9 @@ type AWGTunnelDevice struct {
 func (AWGTunnelDeviceFactory) Create(name string, mtu int, verbose bool) (TunnelDevice, error) {
 	tunDev, err := createTUN(name, mtu)
 	if err != nil {
+		if os.IsPermission(err) {
+			return nil, fmt.Errorf("create TUN device: permission denied; tunnel mode requires elevated privileges on macOS/Linux, run with sudo: %w", err)
+		}
 		return nil, fmt.Errorf("create TUN device: %w", err)
 	}
 

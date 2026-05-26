@@ -76,6 +76,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Configuration parse error: %v", err)
 	}
+	fmt.Println("[awg-proxy] Configuration parsed successfully.")
 
 	if opts.Command == "tunnel" {
 		if err := RunTunnel(cfg, opts.Tunnel); err != nil {

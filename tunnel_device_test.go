@@ -64,6 +64,24 @@ func TestAWGTunnelDeviceFactoryClosesTUNOnNameFailure(t *testing.T) {
 	}
 }
 
+func TestAWGTunnelDeviceFactoryExplainsPermissionFailure(t *testing.T) {
+	origCreateTUN := createTUN
+	createTUN = func(string, int) (tun.Device, error) {
+		return nil, os.ErrPermission
+	}
+	t.Cleanup(func() {
+		createTUN = origCreateTUN
+	})
+
+	_, err := (AWGTunnelDeviceFactory{}).Create("utun", 1420, false)
+	if !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("Create error = %v, want permission error", err)
+	}
+	if !strings.Contains(err.Error(), "requires elevated privileges") {
+		t.Fatalf("Create error = %q, want elevated privileges hint", err)
+	}
+}
+
 func TestAWGTunnelDeviceUpAppliesUAPIBeforeStart(t *testing.T) {
 	dev := &fakeAWGDevice{}
 	tunnel := &AWGTunnelDevice{dev: dev}
