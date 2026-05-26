@@ -342,6 +342,69 @@ func TestRunTunnelDryRunExitsWithoutWaiting(t *testing.T) {
 	}
 }
 
+func TestRunTunnelDryRunDomainRulesDoNotUseInjectedRuntimeFactories(t *testing.T) {
+	recorder := NewDryRunRunner()
+	dev := &fakeTunnelDevice{name: "utun99"}
+	routes := &fakeRouteManager{}
+	dns := &fakeDNSManager{}
+	deps := fakeTunnelDeps(dev, routes, dns)
+	deps.DeviceFactory = dryRunTunnelDeviceFactory{Recorder: recorder}
+	deps.RouteManager = dryRunRouteManager{
+		RouteManager: routes,
+		Recorder:     recorder,
+		Fallback:     dryRunDefaultRouteFallback(),
+	}
+	deps.DNSManager = dryRunDNSManager{Recorder: recorder}
+	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
+		panic("dry-run called injected domain runtime factory")
+	}
+	deps.DynamicRoutesFactory = func(DefaultRoute) DynamicBypassRoutes {
+		panic("dry-run called injected dynamic route factory")
+	}
+	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
+
+	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{DryRun: true, RulesPath: path}, deps)
+	if err != nil {
+		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+	}
+
+	commands := recorder.Commands()
+	if !slices.Contains(commands, "start domain bypass DNS runtime 127.0.0.1:53 upstream 1.1.1.1:53") {
+		t.Fatalf("commands = %#v, want domain runtime dry-run intent", commands)
+	}
+	if !slices.Contains(commands, "set DNS servers 127.0.0.1") {
+		t.Fatalf("commands = %#v, want DNS redirected to local runtime", commands)
+	}
+}
+
+func TestRunTunnelDomainRuntimeUsesBracketedIPv6DNSUpstream(t *testing.T) {
+	dev := &fakeTunnelDevice{name: "utun99"}
+	routes := &fakeRouteManager{}
+	dns := &fakeDNSManager{}
+	deps := fakeTunnelDeps(dev, routes, dns)
+	var calls []string
+	runtime := &fakeDomainRuntime{calls: &calls}
+	dynamicRoutes := &fakeDynamicRoutes{calls: &calls}
+	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
+		return runtime
+	}
+	deps.DynamicRoutesFactory = func(DefaultRoute) DynamicBypassRoutes {
+		return dynamicRoutes
+	}
+	cfg := validTunnelConfig()
+	cfg.Interface.DNS = []string{"2001:4860:4860::8888"}
+	path := writeTempRules(t, `exclude_domain = *.delimobil.*`)
+
+	err := RunTunnelWithDeps(context.Background(), cfg, TunnelOptions{RulesPath: path}, deps)
+	if err != nil {
+		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+	}
+
+	if runtime.config.Upstream != "[2001:4860:4860::8888]:53" {
+		t.Fatalf("Upstream = %q, want [2001:4860:4860::8888]:53", runtime.config.Upstream)
+	}
+}
+
 func TestDryRunRouteManagerFallsBackWhenDefaultRouteDiscoveryFails(t *testing.T) {
 	discoveryErr := errors.New("route discovery failed")
 	routes := &fakeRouteManager{defaultErr: discoveryErr}

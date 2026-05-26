@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 )
 
 type TunnelDeps struct {
@@ -63,6 +64,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 		return fmt.Errorf("tunnel context is nil")
 	}
 	if opts.DryRun {
+		recorder := dryRunRecorderFromDeps(deps)
 		switch deps.DeviceFactory.(type) {
 		case dryRunTunnelDeviceFactory, *dryRunTunnelDeviceFactory:
 		default:
@@ -87,6 +89,12 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 		}
 		deps.Wait = func(context.Context) error {
 			return nil
+		}
+		deps.DomainRuntimeFactory = func() DomainBypassRuntime {
+			return dryRunDomainBypassRuntime{Recorder: recorder}
+		}
+		deps.DynamicRoutesFactory = func(DefaultRoute) DynamicBypassRoutes {
+			return dryRunDynamicBypassRoutes{Recorder: recorder}
 		}
 	} else if deps.DeviceFactory == nil {
 		return fmt.Errorf("tunnel dependency DeviceFactory is nil")
@@ -183,7 +191,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 		runtime := deps.DomainRuntimeFactory()
 		if err := runtime.Start(ctx, DomainBypassConfig{
 			ListenAddr: "127.0.0.1:53",
-			Upstream:   dnsServers[0] + ":53",
+			Upstream:   net.JoinHostPort(dnsServers[0], "53"),
 			Rules:      rules,
 			Routes:     dynamicRoutes,
 		}); err != nil {
@@ -373,6 +381,88 @@ func dryRunDefaultRouteFallback() DefaultRoute {
 		Gateway: netip.MustParseAddr("192.0.2.254"),
 		Device:  "default0",
 	}
+}
+
+func dryRunRecorderFromDeps(deps TunnelDeps) DryRunRecorder {
+	switch factory := deps.DeviceFactory.(type) {
+	case dryRunTunnelDeviceFactory:
+		if factory.Recorder != nil {
+			return factory.Recorder
+		}
+	case *dryRunTunnelDeviceFactory:
+		if factory != nil && factory.Recorder != nil {
+			return factory.Recorder
+		}
+	}
+	switch manager := deps.RouteManager.(type) {
+	case dryRunRouteManager:
+		if manager.Recorder != nil {
+			return manager.Recorder
+		}
+	case *dryRunRouteManager:
+		if manager != nil && manager.Recorder != nil {
+			return manager.Recorder
+		}
+	}
+	switch manager := deps.DNSManager.(type) {
+	case dryRunDNSManager:
+		return manager.Recorder
+	case *dryRunDNSManager:
+		if manager != nil {
+			return manager.Recorder
+		}
+	}
+	return nil
+}
+
+type dryRunDomainBypassRuntime struct {
+	Recorder DryRunRecorder
+}
+
+func (r dryRunDomainBypassRuntime) Start(ctx context.Context, config DomainBypassConfig) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.Recorder != nil {
+		r.Recorder.RecordDryRun(fmt.Sprintf("start domain bypass DNS runtime %s upstream %s", config.ListenAddr, config.Upstream))
+	}
+	return nil
+}
+
+func (r dryRunDomainBypassRuntime) Addr() string {
+	return ""
+}
+
+func (r dryRunDomainBypassRuntime) Close() error {
+	if r.Recorder != nil {
+		r.Recorder.RecordDryRun("stop domain bypass DNS runtime")
+	}
+	return nil
+}
+
+func (r dryRunDomainBypassRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes DynamicBypassRoutes) error {
+	return ctx.Err()
+}
+
+type dryRunDynamicBypassRoutes struct {
+	Recorder DryRunRecorder
+}
+
+func (r dryRunDynamicBypassRoutes) AddBypassRoute(ctx context.Context, prefix netip.Prefix, reason string, ttl time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.Recorder != nil {
+		r.Recorder.RecordDryRun(fmt.Sprintf("add dynamic domain bypass route %s reason %s ttl %s", prefix, reason, ttl))
+	}
+	return nil
+}
+
+func (r dryRunDynamicBypassRoutes) Close() error {
+	if r.Recorder != nil {
+		r.Recorder.RecordDryRun("delete dynamic domain bypass routes")
+	}
+	return nil
 }
 
 type dryRunDNSManager struct {
