@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/netip"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -253,6 +254,32 @@ func TestDryRunRouteManagerFallsBackWhenDefaultRouteDiscoveryFails(t *testing.T)
 	want := []string{"default route discovery failed: route discovery failed; using dry-run placeholder gateway 192.0.2.254 dev default0"}
 	if !reflect.DeepEqual(recorder.Commands(), want) {
 		t.Fatalf("recorded commands = %#v, want %#v", recorder.Commands(), want)
+	}
+}
+
+func TestDryRunRouteManagerRecordsStaticBypass(t *testing.T) {
+	recorder := NewDryRunRunner()
+	manager := dryRunRouteManager{
+		Recorder: recorder,
+		Fallback: dryRunDefaultRouteFallback(),
+	}
+	cleanup := NewCleanupStack()
+	plan := RoutePlan{
+		TunnelCIDRs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1")},
+		StaticBypassCIDRs: []netip.Prefix{
+			netip.MustParsePrefix("198.51.100.0/24"),
+		},
+		EndpointBypass: netip.MustParseAddrPort("203.0.113.10:51820"),
+	}
+	defaultRoute := dryRunDefaultRouteFallback()
+
+	if err := manager.Apply(context.Background(), "utun9", plan, defaultRoute, cleanup); err != nil {
+		t.Fatalf("Apply returned error: %v", err)
+	}
+
+	wantContains := "add static bypass route 198.51.100.0/24 via 192.0.2.254 dev default0"
+	if !slices.Contains(recorder.Commands(), wantContains) {
+		t.Fatalf("commands = %#v, want contains %q", recorder.Commands(), wantContains)
 	}
 }
 

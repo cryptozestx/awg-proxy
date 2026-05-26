@@ -315,6 +315,19 @@ func (m dryRunRouteManager) Apply(ctx context.Context, ifName string, plan Route
 		return nil
 	})
 
+	for _, cidr := range plan.StaticBypassCIDRs {
+		cidrText := cidr.String()
+		if m.Recorder != nil {
+			m.Recorder.RecordDryRun(fmt.Sprintf("add static bypass route %s via %s dev %s", cidrText, defaultRoute.Gateway, defaultRoute.Device))
+		}
+		cleanup.Add("delete static bypass route "+cidrText, func() error {
+			if m.Recorder != nil {
+				m.Recorder.RecordDryRun("delete static bypass route " + cidrText)
+			}
+			return nil
+		})
+	}
+
 	for _, cidr := range plan.TunnelCIDRs {
 		cidrText := cidr.String()
 		if m.Recorder != nil {
