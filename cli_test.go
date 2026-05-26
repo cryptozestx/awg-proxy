@@ -28,6 +28,19 @@ func TestParseCLIRecognizesTunnel(t *testing.T) {
 	}
 }
 
+func TestParseCLITunnelRulesPath(t *testing.T) {
+	opts, err := parseCLI([]string{"awg-proxy", "tunnel", "-c", "amnezia.conf", "--rules", "tunnel.rules"})
+	if err != nil {
+		t.Fatalf("parseCLI returned error: %v", err)
+	}
+	if opts.Command != "tunnel" {
+		t.Fatalf("Command = %q, want tunnel", opts.Command)
+	}
+	if opts.Tunnel.RulesPath != "tunnel.rules" {
+		t.Fatalf("RulesPath = %q, want tunnel.rules", opts.Tunnel.RulesPath)
+	}
+}
+
 func TestParseCLIDefaultsFlagOnlyInvocationToShell(t *testing.T) {
 	opts, err := parseCLI([]string{"awg-proxy", "-c", "amnezia.conf"})
 	if err != nil {

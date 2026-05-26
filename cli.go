@@ -22,6 +22,7 @@ type CLIOptions struct {
 
 type TunnelOptions struct {
 	ConfigPath string
+	RulesPath  string
 	DryRun     bool
 	NoDNS      bool
 	Verbose    bool
@@ -59,6 +60,7 @@ func parseCLI(args []string) (CLIOptions, error) {
 	fs.StringVar(&opts.AppTarget, "app", "", "macOS application name or path to proxy")
 	fs.StringVar(&opts.AppTarget, "a", "", "macOS application name or path to proxy")
 	fs.BoolVar(&opts.Tunnel.DryRun, "dry-run", false, "Print tunnel changes without applying them")
+	fs.StringVar(&opts.Tunnel.RulesPath, "rules", "", "Path to tunnel bypass rules file")
 	fs.BoolVar(&opts.Tunnel.NoDNS, "no-dns", false, "Do not change system DNS")
 	fs.BoolVar(&opts.Tunnel.Verbose, "verbose", false, "Enable verbose tunnel logging")
 
