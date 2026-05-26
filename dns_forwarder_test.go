@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 )
 
 type fakeDynamicBypassRoutes struct {
+	mu       sync.Mutex
 	prefixes []netip.Prefix
 	reasons  []string
 	ttls     []time.Duration
@@ -20,6 +22,8 @@ func (r *fakeDynamicBypassRoutes) AddBypassRoute(ctx context.Context, prefix net
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.prefixes = append(r.prefixes, prefix)
 	r.reasons = append(r.reasons, reason)
 	r.ttls = append(r.ttls, ttl)
@@ -28,6 +32,15 @@ func (r *fakeDynamicBypassRoutes) AddBypassRoute(ctx context.Context, prefix net
 
 func (r *fakeDynamicBypassRoutes) Close() error {
 	return nil
+}
+
+func (r *fakeDynamicBypassRoutes) snapshot() ([]netip.Prefix, []string, []time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	prefixes := append([]netip.Prefix(nil), r.prefixes...)
+	reasons := append([]string(nil), r.reasons...)
+	ttls := append([]time.Duration(nil), r.ttls...)
+	return prefixes, reasons, ttls
 }
 
 func startFakeDNSServer(t *testing.T, name string, ip string) (string, func()) {
@@ -133,14 +146,15 @@ func TestDomainBypassRuntimeAddsRoutesForMatchingAnswers(t *testing.T) {
 	}
 
 	want := netip.MustParsePrefix("198.51.100.44/32")
-	if len(routes.prefixes) != 1 || routes.prefixes[0] != want {
-		t.Fatalf("prefixes = %v, want [%v]", routes.prefixes, want)
+	prefixes, reasons, ttls := routes.snapshot()
+	if len(prefixes) != 1 || prefixes[0] != want {
+		t.Fatalf("prefixes = %v, want [%v]", prefixes, want)
 	}
-	if routes.reasons[0] != "dns:git.delimobil.ru" {
-		t.Fatalf("reason = %q, want dns:git.delimobil.ru", routes.reasons[0])
+	if reasons[0] != "dns:git.delimobil.ru" {
+		t.Fatalf("reason = %q, want dns:git.delimobil.ru", reasons[0])
 	}
-	if routes.ttls[0] != 10*time.Minute {
-		t.Fatalf("ttl = %v, want 10m", routes.ttls[0])
+	if ttls[0] != 10*time.Minute {
+		t.Fatalf("ttl = %v, want 10m", ttls[0])
 	}
 }
 
@@ -157,8 +171,9 @@ func TestDomainBypassRuntimeIgnoresNonMatchingAnswers(t *testing.T) {
 	if err := runtime.HandleAnswer(context.Background(), rules, answer, routes); err != nil {
 		t.Fatalf("HandleAnswer returned error: %v", err)
 	}
-	if len(routes.prefixes) != 0 {
-		t.Fatalf("prefixes = %v, want empty", routes.prefixes)
+	prefixes, _, _ := routes.snapshot()
+	if len(prefixes) != 0 {
+		t.Fatalf("prefixes = %v, want empty", prefixes)
 	}
 }
 
@@ -191,8 +206,9 @@ func TestDomainBypassRuntimeForwarderHandlesARecord(t *testing.T) {
 	}
 
 	want := netip.MustParsePrefix("198.51.100.44/32")
-	if len(routes.prefixes) != 1 || routes.prefixes[0] != want {
-		t.Fatalf("prefixes = %v, want [%v]", routes.prefixes, want)
+	prefixes, _, _ := routes.snapshot()
+	if len(prefixes) != 1 || prefixes[0] != want {
+		t.Fatalf("prefixes = %v, want [%v]", prefixes, want)
 	}
 }
 
@@ -208,6 +224,25 @@ func TestDomainBypassRuntimeStartThenImmediateClose(t *testing.T) {
 		if err := runtime.Close(); err != nil {
 			t.Fatalf("Close returned error on iteration %d: %v", i, err)
 		}
+	}
+}
+
+func TestDomainBypassRuntimeStartWithCanceledContextClosesBeforeReady(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	runtime := NewDomainBypassRuntime()
+	if err := runtime.Start(ctx, DomainBypassConfig{
+		ListenAddr: "127.0.0.1:0",
+		Upstream:   "127.0.0.1:1",
+	}); err != context.Canceled {
+		t.Fatalf("Start error = %v, want context.Canceled", err)
+	}
+	if addr := runtime.Addr(); addr != "" {
+		t.Fatalf("Addr = %q, want empty after canceled start", addr)
+	}
+	if err := runtime.Close(); err != nil {
+		t.Fatalf("Close after canceled start returned error: %v", err)
 	}
 }
 
@@ -240,11 +275,12 @@ func TestDomainBypassRuntimeForwarderHandlesCNAMEARecord(t *testing.T) {
 	}
 
 	want := netip.MustParsePrefix("198.51.100.44/32")
-	if len(routes.prefixes) != 1 || routes.prefixes[0] != want {
-		t.Fatalf("prefixes = %v, want [%v]", routes.prefixes, want)
+	prefixes, reasons, _ := routes.snapshot()
+	if len(prefixes) != 1 || prefixes[0] != want {
+		t.Fatalf("prefixes = %v, want [%v]", prefixes, want)
 	}
-	if routes.reasons[0] != "dns:git.delimobil.ru" {
-		t.Fatalf("reason = %q, want dns:git.delimobil.ru", routes.reasons[0])
+	if reasons[0] != "dns:git.delimobil.ru" {
+		t.Fatalf("reason = %q, want dns:git.delimobil.ru", reasons[0])
 	}
 }
 

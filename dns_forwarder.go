@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,8 +70,8 @@ func (r *DomainBypassRuntime) Start(ctx context.Context, config DomainBypassConf
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.server != nil {
+		r.mu.Unlock()
 		if err := packetConn.Close(); err != nil {
 			return fmt.Errorf("close unused domain bypass listener: %w", err)
 		}
@@ -90,39 +92,56 @@ func (r *DomainBypassRuntime) Start(ctx context.Context, config DomainBypassConf
 			close(ready)
 		},
 	}
+	server := r.server
 	done := r.done
+	r.mu.Unlock()
 
 	go func(server *dns.Server, done chan<- error) {
 		done <- server.ActivateAndServe()
-	}(r.server, done)
-
-	go func() {
-		<-runCtx.Done()
-		_ = r.Close()
-	}()
+	}(server, done)
 
 	select {
 	case <-ready:
+		if ctx.Err() != nil {
+			return r.cancelStartup(ctx, server, packetConn, done, cancel)
+		}
+		go func() {
+			<-runCtx.Done()
+			_ = r.Close()
+		}()
 		return nil
 	case err := <-done:
-		r.server = nil
-		r.done = nil
-		r.cancel = nil
-		r.addr = ""
+		r.mu.Lock()
+		r.clearIfServerLocked(server)
+		r.mu.Unlock()
 		cancel()
 		if err != nil {
 			return fmt.Errorf("start domain bypass DNS server: %w", err)
 		}
 		return fmt.Errorf("domain bypass DNS server stopped before startup")
 	case <-ctx.Done():
-		r.mu.Unlock()
-		err := r.Close()
-		r.mu.Lock()
-		if err != nil {
-			return err
-		}
-		return ctx.Err()
+		return r.cancelStartup(ctx, server, packetConn, done, cancel)
 	}
+}
+
+func (r *DomainBypassRuntime) cancelStartup(ctx context.Context, server *dns.Server, packetConn net.PacketConn, done <-chan error, cancel context.CancelFunc) error {
+	r.mu.Lock()
+	r.clearIfServerLocked(server)
+	r.mu.Unlock()
+
+	cancel()
+	if err := packetConn.Close(); err != nil && !isExpectedDNSServerClose(err) {
+		return fmt.Errorf("close domain bypass DNS listener after startup cancellation: %w", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil && !isExpectedDNSServerClose(err) {
+			return fmt.Errorf("domain bypass DNS server failed after startup cancellation: %w", err)
+		}
+	case <-time.After(time.Second):
+		return fmt.Errorf("domain bypass DNS server did not stop after startup cancellation")
+	}
+	return ctx.Err()
 }
 
 func (r *DomainBypassRuntime) Addr() string {
@@ -140,6 +159,8 @@ func (r *DomainBypassRuntime) Close() error {
 	r.done = nil
 	r.cancel = nil
 	r.addr = ""
+	r.config = DomainBypassConfig{}
+	r.ctx = nil
 	r.mu.Unlock()
 
 	if cancel != nil {
@@ -165,6 +186,25 @@ func (r *DomainBypassRuntime) Close() error {
 		return fmt.Errorf("domain bypass DNS server did not stop")
 	}
 	return nil
+}
+
+func (r *DomainBypassRuntime) clearIfServerLocked(server *dns.Server) {
+	if r.server != server {
+		return
+	}
+	r.server = nil
+	r.done = nil
+	r.cancel = nil
+	r.addr = ""
+	r.config = DomainBypassConfig{}
+	r.ctx = nil
+}
+
+func isExpectedDNSServerClose(err error) bool {
+	return err == nil ||
+		errors.Is(err, net.ErrClosed) ||
+		strings.Contains(err.Error(), "use of closed network connection") ||
+		strings.Contains(err.Error(), "Server closed")
 }
 
 func (r *DomainBypassRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes DynamicBypassRoutes) error {
