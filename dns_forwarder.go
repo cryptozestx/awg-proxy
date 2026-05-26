@@ -27,6 +27,16 @@ type DNSAnswer struct {
 	TTL  time.Duration
 }
 
+type dnsARecord struct {
+	addr netip.Addr
+	ttl  uint32
+}
+
+type dnsCNAMERecord struct {
+	target string
+	ttl    uint32
+}
+
 type DomainBypassRuntime struct {
 	mu     sync.Mutex
 	server *dns.Server
@@ -67,23 +77,52 @@ func (r *DomainBypassRuntime) Start(ctx context.Context, config DomainBypassConf
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
+	ready := make(chan struct{})
 	r.config = config
 	r.ctx = runCtx
 	r.cancel = cancel
 	r.addr = packetConn.LocalAddr().String()
 	r.done = make(chan error, 1)
-	r.server = &dns.Server{PacketConn: packetConn, Handler: dns.HandlerFunc(r.handleDNS)}
+	r.server = &dns.Server{
+		PacketConn: packetConn,
+		Handler:    dns.HandlerFunc(r.handleDNS),
+		NotifyStartedFunc: func() {
+			close(ready)
+		},
+	}
+	done := r.done
 
 	go func(server *dns.Server, done chan<- error) {
 		done <- server.ActivateAndServe()
-	}(r.server, r.done)
+	}(r.server, done)
 
 	go func() {
 		<-runCtx.Done()
 		_ = r.Close()
 	}()
 
-	return nil
+	select {
+	case <-ready:
+		return nil
+	case err := <-done:
+		r.server = nil
+		r.done = nil
+		r.cancel = nil
+		r.addr = ""
+		cancel()
+		if err != nil {
+			return fmt.Errorf("start domain bypass DNS server: %w", err)
+		}
+		return fmt.Errorf("domain bypass DNS server stopped before startup")
+	case <-ctx.Done():
+		r.mu.Unlock()
+		err := r.Close()
+		r.mu.Lock()
+		if err != nil {
+			return err
+		}
+		return ctx.Err()
+	}
 }
 
 func (r *DomainBypassRuntime) Addr() string {
@@ -109,7 +148,9 @@ func (r *DomainBypassRuntime) Close() error {
 	if server == nil {
 		return nil
 	}
-	if err := server.Shutdown(); err != nil {
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
+	defer shutdownCancel()
+	if err := server.ShutdownContext(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown domain bypass DNS: %w", err)
 	}
 	if done == nil {
@@ -158,6 +199,13 @@ func domainRulesMatch(rules []DomainRule, host string) bool {
 }
 
 func (r *DomainBypassRuntime) handleDNS(w dns.ResponseWriter, req *dns.Msg) {
+	if req == nil {
+		if w != nil {
+			_ = w.WriteMsg(serverFailure(nil))
+		}
+		return
+	}
+
 	r.mu.Lock()
 	config := r.config
 	ctx := r.ctx
@@ -173,7 +221,7 @@ func (r *DomainBypassRuntime) handleDNS(w dns.ResponseWriter, req *dns.Msg) {
 		return
 	}
 
-	answers := collectDNSAAnswers(resp)
+	answers := collectDNSAAnswersForQuestions(req, resp, config.Rules)
 	for _, answer := range answers {
 		if err := r.HandleAnswer(ctx, config.Rules, answer, config.Routes); err != nil {
 			_ = w.WriteMsg(serverFailure(req))
@@ -184,53 +232,90 @@ func (r *DomainBypassRuntime) handleDNS(w dns.ResponseWriter, req *dns.Msg) {
 	_ = w.WriteMsg(resp)
 }
 
-func collectDNSAAnswers(resp *dns.Msg) []DNSAnswer {
-	if resp == nil {
+func collectDNSAAnswersForQuestions(req *dns.Msg, resp *dns.Msg, rules TunnelRules) []DNSAnswer {
+	if req == nil || resp == nil {
 		return nil
 	}
 
-	type collected struct {
-		addrs []netip.Addr
-		ttl   uint32
-	}
-	byName := make(map[string]collected)
-	order := make([]string, 0)
+	aRecords := make(map[string][]dnsARecord)
+	cnameRecords := make(map[string][]dnsCNAMERecord)
 	for _, rr := range resp.Answer {
-		a, ok := rr.(*dns.A)
-		if !ok {
-			continue
+		switch rr := rr.(type) {
+		case *dns.A:
+			addr, ok := netip.AddrFromSlice(rr.A.To4())
+			if !ok {
+				continue
+			}
+			name := normalizeDomainPattern(rr.Hdr.Name)
+			aRecords[name] = append(aRecords[name], dnsARecord{addr: addr, ttl: rr.Hdr.Ttl})
+		case *dns.CNAME:
+			name := normalizeDomainPattern(rr.Hdr.Name)
+			target := normalizeDomainPattern(rr.Target)
+			if name == "" || target == "" {
+				continue
+			}
+			cnameRecords[name] = append(cnameRecords[name], dnsCNAMERecord{target: target, ttl: rr.Hdr.Ttl})
 		}
-		addr, ok := netip.AddrFromSlice(a.A.To4())
-		if !ok {
-			continue
-		}
-		name := normalizeDomainPattern(a.Hdr.Name)
-		entry, exists := byName[name]
-		if !exists {
-			entry.ttl = math.MaxUint32
-			order = append(order, name)
-		}
-		entry.addrs = append(entry.addrs, addr)
-		if a.Hdr.Ttl < entry.ttl {
-			entry.ttl = a.Hdr.Ttl
-		}
-		byName[name] = entry
 	}
 
-	answers := make([]DNSAnswer, 0, len(order))
-	for _, name := range order {
-		entry := byName[name]
+	answers := make([]DNSAnswer, 0)
+	seenQuestions := make(map[string]bool)
+	for _, question := range req.Question {
+		queryName := normalizeDomainPattern(question.Name)
+		if queryName == "" || seenQuestions[queryName] || !domainRulesMatch(rules.DomainRules, queryName) {
+			continue
+		}
+		seenQuestions[queryName] = true
+
+		addrs, ttl, ok := collectLinkedARecords(queryName, aRecords, cnameRecords)
+		if !ok {
+			continue
+		}
 		answers = append(answers, DNSAnswer{
-			Name: name,
-			A:    entry.addrs,
-			TTL:  time.Duration(entry.ttl) * time.Second,
+			Name: queryName,
+			A:    addrs,
+			TTL:  time.Duration(ttl) * time.Second,
 		})
 	}
 	return answers
 }
 
+func collectLinkedARecords(queryName string, aRecords map[string][]dnsARecord, cnameRecords map[string][]dnsCNAMERecord) ([]netip.Addr, uint32, bool) {
+	current := queryName
+	minTTL := uint32(math.MaxUint32)
+	addrs := make([]netip.Addr, 0)
+	seenNames := make(map[string]bool)
+	for current != "" && !seenNames[current] {
+		seenNames[current] = true
+
+		for _, record := range aRecords[current] {
+			addrs = append(addrs, record.addr)
+			if record.ttl < minTTL {
+				minTTL = record.ttl
+			}
+		}
+
+		cnames := cnameRecords[current]
+		if len(cnames) == 0 {
+			break
+		}
+		if cnames[0].ttl < minTTL {
+			minTTL = cnames[0].ttl
+		}
+		current = cnames[0].target
+	}
+	if len(addrs) == 0 {
+		return nil, 0, false
+	}
+	return addrs, minTTL, true
+}
+
 func serverFailure(req *dns.Msg) *dns.Msg {
 	resp := new(dns.Msg)
+	if req == nil {
+		resp.Rcode = dns.RcodeServerFailure
+		return resp
+	}
 	resp.SetRcode(req, dns.RcodeServerFailure)
 	return resp
 }

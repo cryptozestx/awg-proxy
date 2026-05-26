@@ -33,8 +33,7 @@ func (r *fakeDynamicBypassRoutes) Close() error {
 func startFakeDNSServer(t *testing.T, name string, ip string) (string, func()) {
 	t.Helper()
 
-	mux := dns.NewServeMux()
-	mux.HandleFunc(".", func(w dns.ResponseWriter, req *dns.Msg) {
+	return startFakeDNSServerFunc(t, func(w dns.ResponseWriter, req *dns.Msg) {
 		resp := new(dns.Msg)
 		resp.SetReply(req)
 		if len(req.Question) > 0 && req.Question[0].Qtype == dns.TypeA && req.Question[0].Name == name {
@@ -52,6 +51,13 @@ func startFakeDNSServer(t *testing.T, name string, ip string) (string, func()) {
 			t.Errorf("write DNS response: %v", err)
 		}
 	})
+}
+
+func startFakeDNSServerFunc(t *testing.T, handler dns.HandlerFunc) (string, func()) {
+	t.Helper()
+
+	mux := dns.NewServeMux()
+	mux.HandleFunc(".", handler)
 
 	packetConn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -78,6 +84,38 @@ func startFakeDNSServer(t *testing.T, name string, ip string) (string, func()) {
 	}
 
 	return packetConn.LocalAddr().String(), stop
+}
+
+func cnameResponseHandler(t *testing.T, queryName string, cnameName string, ip string) dns.HandlerFunc {
+	t.Helper()
+
+	return func(w dns.ResponseWriter, req *dns.Msg) {
+		resp := new(dns.Msg)
+		resp.SetReply(req)
+		resp.Answer = append(resp.Answer,
+			&dns.CNAME{
+				Hdr: dns.RR_Header{
+					Name:   queryName,
+					Rrtype: dns.TypeCNAME,
+					Class:  dns.ClassINET,
+					Ttl:    20,
+				},
+				Target: cnameName,
+			},
+			&dns.A{
+				Hdr: dns.RR_Header{
+					Name:   cnameName,
+					Rrtype: dns.TypeA,
+					Class:  dns.ClassINET,
+					Ttl:    30,
+				},
+				A: net.ParseIP(ip).To4(),
+			},
+		)
+		if err := w.WriteMsg(resp); err != nil {
+			t.Errorf("write DNS response: %v", err)
+		}
+	}
 }
 
 func TestDomainBypassRuntimeAddsRoutesForMatchingAnswers(t *testing.T) {
@@ -155,5 +193,97 @@ func TestDomainBypassRuntimeForwarderHandlesARecord(t *testing.T) {
 	want := netip.MustParsePrefix("198.51.100.44/32")
 	if len(routes.prefixes) != 1 || routes.prefixes[0] != want {
 		t.Fatalf("prefixes = %v, want [%v]", routes.prefixes, want)
+	}
+}
+
+func TestDomainBypassRuntimeStartThenImmediateClose(t *testing.T) {
+	for i := 0; i < 25; i++ {
+		runtime := NewDomainBypassRuntime()
+		if err := runtime.Start(context.Background(), DomainBypassConfig{
+			ListenAddr: "127.0.0.1:0",
+			Upstream:   "127.0.0.1:1",
+		}); err != nil {
+			t.Fatalf("Start returned error on iteration %d: %v", i, err)
+		}
+		if err := runtime.Close(); err != nil {
+			t.Fatalf("Close returned error on iteration %d: %v", i, err)
+		}
+	}
+}
+
+func TestDomainBypassRuntimeForwarderHandlesCNAMEARecord(t *testing.T) {
+	upstreamAddr, stopUpstream := startFakeDNSServerFunc(t, cnameResponseHandler(t, "git.delimobil.ru.", "cdn.example.net.", "198.51.100.44"))
+	defer stopUpstream()
+
+	routes := &fakeDynamicBypassRoutes{}
+	rules := TunnelRules{DomainRules: []DomainRule{{Pattern: "*.delimobil.*"}}}
+	runtime := NewDomainBypassRuntime()
+	if err := runtime.Start(context.Background(), DomainBypassConfig{
+		ListenAddr: "127.0.0.1:0",
+		Upstream:   upstreamAddr,
+		Rules:      rules,
+		Routes:     routes,
+	}); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	defer runtime.Close()
+
+	client := &dns.Client{}
+	msg := new(dns.Msg)
+	msg.SetQuestion("git.delimobil.ru.", dns.TypeA)
+	resp, _, err := client.Exchange(msg, runtime.Addr())
+	if err != nil {
+		t.Fatalf("DNS exchange failed: %v", err)
+	}
+	if len(resp.Answer) != 2 {
+		t.Fatalf("answers = %d, want 2", len(resp.Answer))
+	}
+
+	want := netip.MustParsePrefix("198.51.100.44/32")
+	if len(routes.prefixes) != 1 || routes.prefixes[0] != want {
+		t.Fatalf("prefixes = %v, want [%v]", routes.prefixes, want)
+	}
+	if routes.reasons[0] != "dns:git.delimobil.ru" {
+		t.Fatalf("reason = %q, want dns:git.delimobil.ru", routes.reasons[0])
+	}
+}
+
+func TestCollectDNSAAnswersForQuestionsIgnoresUnrelatedARecord(t *testing.T) {
+	req := new(dns.Msg)
+	req.SetQuestion("git.delimobil.ru.", dns.TypeA)
+	resp := new(dns.Msg)
+	resp.SetReply(req)
+	resp.Answer = append(resp.Answer, &dns.A{
+		Hdr: dns.RR_Header{
+			Name:   "unrelated.delimobil.ru.",
+			Rrtype: dns.TypeA,
+			Class:  dns.ClassINET,
+			Ttl:    30,
+		},
+		A: net.ParseIP("198.51.100.44").To4(),
+	})
+	rules := TunnelRules{DomainRules: []DomainRule{{Pattern: "*.delimobil.*"}}}
+
+	answers := collectDNSAAnswersForQuestions(req, resp, rules)
+	if len(answers) != 0 {
+		t.Fatalf("answers = %v, want empty", answers)
+	}
+}
+
+func TestDomainBypassRuntimeNilDNSHelpersDoNotPanic(t *testing.T) {
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("serverFailure(nil) panicked: %v", r)
+			}
+		}()
+		resp := serverFailure(nil)
+		if resp == nil || resp.Rcode != dns.RcodeServerFailure {
+			t.Fatalf("serverFailure(nil) = %#v, want SERVFAIL response", resp)
+		}
+	}()
+
+	if answers := collectDNSAAnswersForQuestions(nil, nil, TunnelRules{}); len(answers) != 0 {
+		t.Fatalf("answers = %v, want empty", answers)
 	}
 }

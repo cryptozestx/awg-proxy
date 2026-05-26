@@ -2,11 +2,13 @@ module awg-proxy
 
 go 1.24.4
 
-require github.com/amnezia-vpn/amneziawg-go v0.2.18
+require (
+	github.com/amnezia-vpn/amneziawg-go v0.2.18
+	github.com/miekg/dns v1.1.72
+)
 
 require (
 	github.com/google/btree v1.1.3 // indirect
-	github.com/miekg/dns v1.1.72 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/mod v0.31.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
