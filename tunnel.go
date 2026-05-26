@@ -1,6 +1,7 @@
 package main
 
 import (
+	"awg-proxy/internal/platform"
 	"context"
 	"errors"
 	"fmt"
@@ -32,7 +33,7 @@ type DryRunRecorder interface {
 func RunTunnel(cfg *AWGConfig, opts TunnelOptions) error {
 	ctx := context.Background()
 	if opts.DryRun {
-		runner := NewDryRunRunnerWithOutput(ExecRunner{})
+		runner := platform.NewDryRunRunnerWithOutput(platform.ExecRunner{})
 		deps := TunnelDeps{
 			DeviceFactory: dryRunTunnelDeviceFactory{Recorder: runner},
 			RouteManager: dryRunRouteManager{
@@ -53,8 +54,8 @@ func RunTunnel(cfg *AWGConfig, opts TunnelOptions) error {
 
 	deps := TunnelDeps{
 		DeviceFactory: AWGTunnelDeviceFactory{},
-		RouteManager:  NewPlatformRouteManager(ExecRunner{}),
-		DNSManager:    NewPlatformDNSManager(ExecRunner{}),
+		RouteManager:  NewPlatformRouteManager(platform.ExecRunner{}),
+		DNSManager:    NewPlatformDNSManager(platform.ExecRunner{}),
 		Lookup:        netipLookup,
 		Wait:          waitForSignal,
 	}

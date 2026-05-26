@@ -1,4 +1,4 @@
-package main
+package platform
 
 import (
 	"context"
@@ -38,12 +38,12 @@ func NewDryRunRunnerWithOutput(outputRunner CommandRunner) *DryRunRunner {
 }
 
 func (r *DryRunRunner) Run(_ context.Context, name string, args ...string) error {
-	r.commands = append(r.commands, commandString(name, args...))
+	r.commands = append(r.commands, CommandString(name, args...))
 	return nil
 }
 
 func (r *DryRunRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
-	r.commands = append(r.commands, commandString(name, args...))
+	r.commands = append(r.commands, CommandString(name, args...))
 	if r.outputRunner != nil {
 		return r.outputRunner.Output(ctx, name, args...)
 	}
@@ -58,6 +58,6 @@ func (r *DryRunRunner) Commands() []string {
 	return append([]string(nil), r.commands...)
 }
 
-func commandString(name string, args ...string) string {
+func CommandString(name string, args ...string) string {
 	return strings.Join(append([]string{name}, args...), " ")
 }

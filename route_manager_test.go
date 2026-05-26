@@ -1,6 +1,7 @@
 package main
 
 import (
+	"awg-proxy/internal/platform"
 	"context"
 	"errors"
 	"net/netip"
@@ -18,7 +19,7 @@ type fakeRouteRunner struct {
 
 func (r *fakeRouteRunner) Run(_ context.Context, name string, args ...string) error {
 	r.runCount++
-	record := commandString(name, args...)
+	record := platform.CommandString(name, args...)
 	r.runRecords = append(r.runRecords, record)
 	if r.runErrAt == r.runCount {
 		return errors.New("runner failed")
@@ -27,7 +28,7 @@ func (r *fakeRouteRunner) Run(_ context.Context, name string, args ...string) er
 }
 
 func (r *fakeRouteRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
-	if out, ok := r.outputs[commandString(name, args...)]; ok {
+	if out, ok := r.outputs[platform.CommandString(name, args...)]; ok {
 		return out, nil
 	}
 	return nil, errors.New("missing output")

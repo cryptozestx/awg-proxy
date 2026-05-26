@@ -3,6 +3,7 @@
 package main
 
 import (
+	"awg-proxy/internal/platform"
 	"context"
 	"errors"
 	"fmt"
@@ -11,7 +12,7 @@ import (
 )
 
 type DarwinRouteManager struct {
-	Runner CommandRunner
+	Runner platform.CommandRunner
 }
 
 func (m DarwinRouteManager) ConfigureInterface(ctx context.Context, ifName string, addr netip.Prefix, mtu int) error {
@@ -35,11 +36,11 @@ func (m DarwinRouteManager) Apply(ctx context.Context, ifName string, plan Route
 }
 
 func NewPlatformDynamicBypassRoutes(defaultRoute DefaultRoute) DynamicBypassRoutes {
-	return &DarwinDynamicBypassRoutes{Runner: ExecRunner{}, DefaultRoute: defaultRoute}
+	return &DarwinDynamicBypassRoutes{Runner: platform.ExecRunner{}, DefaultRoute: defaultRoute}
 }
 
 type DarwinDynamicBypassRoutes struct {
-	Runner       CommandRunner
+	Runner       platform.CommandRunner
 	DefaultRoute DefaultRoute
 	set          dynamicRouteSet
 }

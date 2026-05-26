@@ -3,6 +3,7 @@
 package main
 
 import (
+	"awg-proxy/internal/platform"
 	"context"
 	"errors"
 	"fmt"
@@ -10,7 +11,7 @@ import (
 )
 
 type DarwinDNSManager struct {
-	Runner CommandRunner
+	Runner platform.CommandRunner
 }
 
 func (m DarwinDNSManager) Apply(ctx context.Context, servers []string, cleanup *CleanupStack) error {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"awg-proxy/internal/platform"
 	"context"
 	"errors"
 	"io"
@@ -387,7 +388,7 @@ func TestRunTunnelDryRunExitsWithoutWaiting(t *testing.T) {
 }
 
 func TestRunTunnelDryRunDomainRulesDoNotUseInjectedRuntimeFactories(t *testing.T) {
-	recorder := NewDryRunRunner()
+	recorder := platform.NewDryRunRunner()
 	dev := &fakeTunnelDevice{name: "utun99"}
 	routes := &fakeRouteManager{}
 	dns := &fakeDNSManager{}
@@ -452,7 +453,7 @@ func TestRunTunnelDomainRuntimeUsesBracketedIPv6DNSUpstream(t *testing.T) {
 func TestDryRunRouteManagerFallsBackWhenDefaultRouteDiscoveryFails(t *testing.T) {
 	discoveryErr := errors.New("route discovery failed")
 	routes := &fakeRouteManager{defaultErr: discoveryErr}
-	recorder := NewDryRunRunner()
+	recorder := platform.NewDryRunRunner()
 	fallback := DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.254"), Device: "default0"}
 	manager := dryRunRouteManager{
 		RouteManager: routes,
@@ -475,7 +476,7 @@ func TestDryRunRouteManagerFallsBackWhenDefaultRouteDiscoveryFails(t *testing.T)
 }
 
 func TestDryRunRouteManagerRecordsStaticBypass(t *testing.T) {
-	recorder := NewDryRunRunner()
+	recorder := platform.NewDryRunRunner()
 	manager := dryRunRouteManager{
 		Recorder: recorder,
 		Fallback: dryRunDefaultRouteFallback(),

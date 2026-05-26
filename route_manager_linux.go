@@ -3,6 +3,7 @@
 package main
 
 import (
+	"awg-proxy/internal/platform"
 	"context"
 	"errors"
 	"fmt"
@@ -11,13 +12,13 @@ import (
 )
 
 type LinuxRouteManager struct {
-	Runner CommandRunner
+	Runner platform.CommandRunner
 }
 
 func (m LinuxRouteManager) ConfigureInterface(ctx context.Context, ifName string, addr netip.Prefix, mtu int) error {
 	for _, cmd := range linuxConfigureAddressCommands(ifName, addr, mtu) {
 		if err := m.Runner.Run(ctx, cmd[0], cmd[1:]...); err != nil {
-			return fmt.Errorf("configure interface %s with %s: %w", ifName, commandString(cmd[0], cmd[1:]...), err)
+			return fmt.Errorf("configure interface %s with %s: %w", ifName, platform.CommandString(cmd[0], cmd[1:]...), err)
 		}
 	}
 	return nil
@@ -36,11 +37,11 @@ func (m LinuxRouteManager) Apply(ctx context.Context, ifName string, plan RouteP
 }
 
 func NewPlatformDynamicBypassRoutes(defaultRoute DefaultRoute) DynamicBypassRoutes {
-	return &LinuxDynamicBypassRoutes{Runner: ExecRunner{}, DefaultRoute: defaultRoute}
+	return &LinuxDynamicBypassRoutes{Runner: platform.ExecRunner{}, DefaultRoute: defaultRoute}
 }
 
 type LinuxDynamicBypassRoutes struct {
-	Runner       CommandRunner
+	Runner       platform.CommandRunner
 	DefaultRoute DefaultRoute
 	set          dynamicRouteSet
 }

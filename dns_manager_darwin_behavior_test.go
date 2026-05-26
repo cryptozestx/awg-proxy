@@ -3,6 +3,7 @@
 package main
 
 import (
+	"awg-proxy/internal/platform"
 	"context"
 	"errors"
 	"fmt"
@@ -21,7 +22,7 @@ type fakeDNSCommandRunner struct {
 }
 
 func (r *fakeDNSCommandRunner) Run(ctx context.Context, name string, args ...string) error {
-	command := commandString(name, args...)
+	command := platform.CommandString(name, args...)
 	r.commands = append(r.commands, command)
 	r.runCount++
 	if err := ctx.Err(); err != nil {
@@ -35,7 +36,7 @@ func (r *fakeDNSCommandRunner) Run(ctx context.Context, name string, args ...str
 }
 
 func (r *fakeDNSCommandRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
-	command := commandString(name, args...)
+	command := platform.CommandString(name, args...)
 	r.commands = append(r.commands, command)
 	if err := ctx.Err(); err != nil {
 		r.canceledCalls = append(r.canceledCalls, command)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"awg-proxy/internal/platform"
 	"context"
 	"fmt"
 	"net"
@@ -231,7 +232,7 @@ func parseLinuxDefaultRoute(out string) (DefaultRoute, error) {
 	return DefaultRoute{}, fmt.Errorf("default route with gateway and device missing")
 }
 
-func darwinApplyRoutes(ctx context.Context, runner CommandRunner, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error {
+func darwinApplyRoutes(ctx context.Context, runner platform.CommandRunner, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error {
 	endpointIP := plan.EndpointBypass.Addr().String()
 	if err := runner.Run(ctx, "route", "add", endpointIP, defaultRoute.Gateway.String()); err != nil {
 		return fmt.Errorf("add endpoint bypass route %s via %s: %w", endpointIP, defaultRoute.Gateway, err)
@@ -272,7 +273,7 @@ func darwinApplyRoutes(ctx context.Context, runner CommandRunner, ifName string,
 	return nil
 }
 
-func linuxApplyRoutes(ctx context.Context, runner CommandRunner, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error {
+func linuxApplyRoutes(ctx context.Context, runner platform.CommandRunner, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error {
 	endpointIP := plan.EndpointBypass.Addr().String()
 	if err := runner.Run(ctx, "ip", "route", "add", endpointIP, "via", defaultRoute.Gateway.String(), "dev", defaultRoute.Device); err != nil {
 		return fmt.Errorf("add endpoint bypass route %s via %s dev %s: %w", endpointIP, defaultRoute.Gateway, defaultRoute.Device, err)

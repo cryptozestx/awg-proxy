@@ -3,6 +3,7 @@
 package main
 
 import (
+	"awg-proxy/internal/platform"
 	"context"
 	"errors"
 	"net/netip"
@@ -21,7 +22,7 @@ type recordingRunner struct {
 func (r *recordingRunner) Run(_ context.Context, name string, args ...string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.commands = append(r.commands, commandString(name, args...))
+	r.commands = append(r.commands, platform.CommandString(name, args...))
 	return r.err
 }
 
