@@ -43,18 +43,20 @@ type LinuxDynamicBypassRoutes struct {
 
 func (m *LinuxDynamicBypassRoutes) AddBypassRoute(ctx context.Context, prefix netip.Prefix, reason string, ttl time.Duration) error {
 	target := prefix.String()
-	if !m.set.add(prefix) {
+	if !m.set.reserve(prefix) {
 		return nil
 	}
 	if err := m.Runner.Run(ctx, "ip", "route", "add", target, "via", m.DefaultRoute.Gateway.String(), "dev", m.DefaultRoute.Device); err != nil {
+		m.set.forget(prefix)
 		return fmt.Errorf("add dynamic bypass route %s via %s dev %s: %w", target, m.DefaultRoute.Gateway, m.DefaultRoute.Device, err)
 	}
+	m.set.markAdded(prefix)
 	return nil
 }
 
 func (m *LinuxDynamicBypassRoutes) Close() error {
 	var errs []error
-	for _, prefix := range m.set.takeAll() {
+	for _, prefix := range m.set.takeAdded() {
 		target := prefix.String()
 		if err := m.Runner.Run(context.Background(), "ip", "route", "del", target); err != nil {
 			errs = append(errs, fmt.Errorf("delete dynamic bypass route %s: %w", target, err))

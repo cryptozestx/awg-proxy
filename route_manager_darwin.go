@@ -42,18 +42,20 @@ type DarwinDynamicBypassRoutes struct {
 
 func (m *DarwinDynamicBypassRoutes) AddBypassRoute(ctx context.Context, prefix netip.Prefix, reason string, ttl time.Duration) error {
 	target := routeTarget(prefix)
-	if !m.set.add(prefix) {
+	if !m.set.reserve(prefix) {
 		return nil
 	}
 	if err := m.Runner.Run(ctx, "route", "add", target, m.DefaultRoute.Gateway.String()); err != nil {
+		m.set.forget(prefix)
 		return fmt.Errorf("add dynamic bypass route %s via %s: %w", target, m.DefaultRoute.Gateway, err)
 	}
+	m.set.markAdded(prefix)
 	return nil
 }
 
 func (m *DarwinDynamicBypassRoutes) Close() error {
 	var errs []error
-	for _, prefix := range m.set.takeAll() {
+	for _, prefix := range m.set.takeAdded() {
 		target := routeTarget(prefix)
 		if err := m.Runner.Run(context.Background(), "route", "delete", target); err != nil {
 			errs = append(errs, fmt.Errorf("delete dynamic bypass route %s: %w", target, err))

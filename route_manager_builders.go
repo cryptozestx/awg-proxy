@@ -44,31 +44,72 @@ func routeTarget(prefix netip.Prefix) string {
 	return prefix.String()
 }
 
+type dynamicRouteState int
+
+const (
+	dynamicRoutePending dynamicRouteState = iota
+	dynamicRouteAdded
+)
+
 type dynamicRouteSet struct {
 	mu     sync.Mutex
-	routes map[string]netip.Prefix
+	routes map[string]dynamicRouteEntry
 }
 
-func (s *dynamicRouteSet) add(prefix netip.Prefix) bool {
+type dynamicRouteEntry struct {
+	prefix netip.Prefix
+	state  dynamicRouteState
+}
+
+func (s *dynamicRouteSet) reserve(prefix netip.Prefix) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.routes == nil {
-		s.routes = make(map[string]netip.Prefix)
+		s.routes = make(map[string]dynamicRouteEntry)
 	}
 	key := prefix.String()
 	if _, ok := s.routes[key]; ok {
 		return false
 	}
-	s.routes[key] = prefix
+	s.routes[key] = dynamicRouteEntry{
+		prefix: prefix,
+		state:  dynamicRoutePending,
+	}
 	return true
 }
 
-func (s *dynamicRouteSet) takeAll() []netip.Prefix {
+func (s *dynamicRouteSet) markAdded(prefix netip.Prefix) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.routes == nil {
+		return
+	}
+	key := prefix.String()
+	entry, ok := s.routes[key]
+	if !ok {
+		return
+	}
+	entry.state = dynamicRouteAdded
+	s.routes[key] = entry
+}
+
+func (s *dynamicRouteSet) forget(prefix netip.Prefix) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.routes == nil {
+		return
+	}
+	delete(s.routes, prefix.String())
+}
+
+func (s *dynamicRouteSet) takeAdded() []netip.Prefix {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	result := make([]netip.Prefix, 0, len(s.routes))
-	for _, prefix := range s.routes {
-		result = append(result, prefix)
+	for _, entry := range s.routes {
+		if entry.state == dynamicRouteAdded {
+			result = append(result, entry.prefix)
+		}
 	}
 	s.routes = nil
 	return result
