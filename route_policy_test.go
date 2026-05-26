@@ -22,3 +22,22 @@ func TestBuildFullTunnelRoutePlan(t *testing.T) {
 		t.Fatalf("EndpointBypass = %v, want %v", plan.EndpointBypass, endpoint)
 	}
 }
+
+func TestBuildTunnelRoutePlanWithStaticBypass(t *testing.T) {
+	endpoint := netip.MustParseAddrPort("203.0.113.10:51820")
+	rules := TunnelRules{
+		StaticBypassCIDRs: []netip.Prefix{
+			netip.MustParsePrefix("198.51.100.0/24"),
+			netip.MustParsePrefix("203.0.113.20/32"),
+		},
+	}
+
+	plan := BuildTunnelRoutePlan(endpoint, rules)
+
+	if plan.EndpointBypass != endpoint {
+		t.Fatalf("EndpointBypass = %v, want %v", plan.EndpointBypass, endpoint)
+	}
+	if !reflect.DeepEqual(plan.StaticBypassCIDRs, rules.StaticBypassCIDRs) {
+		t.Fatalf("StaticBypassCIDRs = %v, want %v", plan.StaticBypassCIDRs, rules.StaticBypassCIDRs)
+	}
+}
