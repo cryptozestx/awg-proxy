@@ -186,7 +186,10 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 	}
 
 	if rules.HasDomainRules() {
-		dynamicRoutes := deps.DynamicRoutesFactory(defaultRoute)
+		dynamicRoutes := staticAwareDynamicBypassRoutes{
+			DynamicBypassRoutes: deps.DynamicRoutesFactory(defaultRoute),
+			staticBypassCIDRs:   plan.StaticBypassCIDRs,
+		}
 		cleanup.Add("delete dynamic domain bypass routes", dynamicRoutes.Close)
 		runtime := deps.DomainRuntimeFactory()
 		if err := runtime.Start(ctx, DomainBypassConfig{
@@ -208,6 +211,20 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 	}
 
 	return deps.Wait(ctx)
+}
+
+type staticAwareDynamicBypassRoutes struct {
+	DynamicBypassRoutes
+	staticBypassCIDRs []netip.Prefix
+}
+
+func (r staticAwareDynamicBypassRoutes) AddBypassRoute(ctx context.Context, prefix netip.Prefix, reason string, ttl time.Duration) error {
+	for _, staticPrefix := range r.staticBypassCIDRs {
+		if staticPrefix.Contains(prefix.Addr()) {
+			return nil
+		}
+	}
+	return r.DynamicBypassRoutes.AddBypassRoute(ctx, prefix, reason, ttl)
 }
 
 func waitForSignal(ctx context.Context) error {

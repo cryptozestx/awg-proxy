@@ -41,6 +41,8 @@ func printUsage() {
 	fmt.Println("\x1b[1;36m│\x1b[0m    -h, --http-port   HTTP proxy port to bind (default: \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m                      0, which auto-selects a free port)\x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    -d, --debug       Enable verbose connection logging \x1b[1;36m│\x1b[0m")
+	fmt.Println("\x1b[1;36m│\x1b[0m    tunnel options:  --rules PATH, --dry-run, --no-dns, \x1b[1;36m│\x1b[0m")
+	fmt.Println("\x1b[1;36m│\x1b[0m                      --verbose                         \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m                                                        \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m  \x1b[1;33mExamples:\x1b[0m                                             \x1b[1;36m│\x1b[0m")
 	fmt.Println("\x1b[1;36m│\x1b[0m    awg-proxy shell -c vpn.conf                         \x1b[1;36m│\x1b[0m")

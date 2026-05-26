@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"net/netip"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -105,13 +107,19 @@ func (m *fakeDNSManager) Apply(ctx context.Context, servers []string, cleanup *C
 }
 
 type fakeDomainRuntime struct {
-	calls  *[]string
-	config DomainBypassConfig
+	calls   *[]string
+	config  DomainBypassConfig
+	onStart func(context.Context, DomainBypassConfig) error
 }
 
 func (r *fakeDomainRuntime) Start(ctx context.Context, config DomainBypassConfig) error {
 	*r.calls = append(*r.calls, "domain-runtime-start")
 	r.config = config
+	if r.onStart != nil {
+		if err := r.onStart(ctx, config); err != nil {
+			return err
+		}
+	}
 	return ctx.Err()
 }
 
@@ -270,8 +278,44 @@ func TestRunTunnelStartsDomainRuntimeBeforeApplyingDNS(t *testing.T) {
 	if runtime.config.Routes == nil {
 		t.Fatalf("Routes is nil")
 	}
-	if runtime.config.Routes != dynamicRoutes {
-		t.Fatalf("Routes = %#v, want injected dynamic routes", runtime.config.Routes)
+	wrappedRoutes, ok := runtime.config.Routes.(staticAwareDynamicBypassRoutes)
+	if !ok {
+		t.Fatalf("Routes = %#v, want static-aware dynamic routes", runtime.config.Routes)
+	}
+	if wrappedRoutes.DynamicBypassRoutes != dynamicRoutes {
+		t.Fatalf("wrapped Routes = %#v, want injected dynamic routes", wrappedRoutes.DynamicBypassRoutes)
+	}
+}
+
+func TestRunTunnelDomainRoutesSkipStaticCoveredPrefix(t *testing.T) {
+	dev := &fakeTunnelDevice{name: "utun99"}
+	routes := &fakeRouteManager{}
+	dns := &fakeDNSManager{}
+	deps := fakeTunnelDeps(dev, routes, dns)
+	var calls []string
+	runtime := &fakeDomainRuntime{calls: &calls}
+	runtime.onStart = func(ctx context.Context, config DomainBypassConfig) error {
+		return config.Routes.AddBypassRoute(ctx, netip.MustParsePrefix("198.51.100.44/32"), "dns:api.delimobil.test", time.Minute)
+	}
+	dynamicRoutes := &fakeDynamicRoutes{calls: &calls}
+	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
+		return runtime
+	}
+	deps.DynamicRoutesFactory = func(DefaultRoute) DynamicBypassRoutes {
+		return dynamicRoutes
+	}
+	path := writeTempRules(t, `
+exclude_ip = 198.51.100.44
+exclude_domain = *.delimobil.*
+`)
+
+	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{RulesPath: path}, deps)
+	if err != nil {
+		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+	}
+
+	if slices.Contains(calls, "dynamic-route-add:198.51.100.44/32") {
+		t.Fatalf("dynamic route add was called for statically covered prefix: %v", calls)
 	}
 }
 
@@ -518,5 +562,33 @@ func TestRunTunnelRejectsEmptyDNSBeforeDeviceCreation(t *testing.T) {
 	}
 	if len(dns.calls) != 0 {
 		t.Fatalf("DNS calls = %#v, want none", dns.calls)
+	}
+}
+
+func TestPrintUsageListsTunnelOptions(t *testing.T) {
+	oldStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe returned error: %v", err)
+	}
+	os.Stdout = writer
+	t.Cleanup(func() {
+		os.Stdout = oldStdout
+	})
+
+	printUsage()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close returned error: %v", err)
+	}
+	out, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("io.ReadAll returned error: %v", err)
+	}
+
+	text := string(out)
+	for _, flag := range []string{"--rules", "--dry-run", "--no-dns", "--verbose"} {
+		if !strings.Contains(text, flag) {
+			t.Fatalf("usage output does not mention %s:\n%s", flag, text)
+		}
 	}
 }

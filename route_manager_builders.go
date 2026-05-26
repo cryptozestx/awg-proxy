@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 func darwinConfigureAddressCommand(ifName string, addr netip.Prefix, mtu int) []string {
@@ -57,23 +58,35 @@ type dynamicRouteSet struct {
 }
 
 type dynamicRouteEntry struct {
-	prefix netip.Prefix
-	state  dynamicRouteState
+	prefix     netip.Prefix
+	state      dynamicRouteState
+	ttl        time.Duration
+	timer      *time.Timer
+	generation uint64
+	expire     func(netip.Prefix) error
 }
 
-func (s *dynamicRouteSet) reserve(prefix netip.Prefix) bool {
+func (s *dynamicRouteSet) reserve(prefix netip.Prefix, ttl time.Duration, expire func(netip.Prefix) error) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.routes == nil {
 		s.routes = make(map[string]dynamicRouteEntry)
 	}
 	key := prefix.String()
-	if _, ok := s.routes[key]; ok {
+	if entry, ok := s.routes[key]; ok {
+		entry.ttl = ttl
+		entry.expire = expire
+		if entry.state == dynamicRouteAdded {
+			entry = s.resetTimerLocked(entry)
+		}
+		s.routes[key] = entry
 		return false
 	}
 	s.routes[key] = dynamicRouteEntry{
 		prefix: prefix,
 		state:  dynamicRoutePending,
+		ttl:    ttl,
+		expire: expire,
 	}
 	return true
 }
@@ -90,6 +103,7 @@ func (s *dynamicRouteSet) markAdded(prefix netip.Prefix) {
 		return
 	}
 	entry.state = dynamicRouteAdded
+	entry = s.resetTimerLocked(entry)
 	s.routes[key] = entry
 }
 
@@ -99,7 +113,11 @@ func (s *dynamicRouteSet) forget(prefix netip.Prefix) {
 	if s.routes == nil {
 		return
 	}
-	delete(s.routes, prefix.String())
+	key := prefix.String()
+	if entry, ok := s.routes[key]; ok && entry.timer != nil {
+		entry.timer.Stop()
+	}
+	delete(s.routes, key)
 }
 
 func (s *dynamicRouteSet) takeAdded() []netip.Prefix {
@@ -107,12 +125,54 @@ func (s *dynamicRouteSet) takeAdded() []netip.Prefix {
 	defer s.mu.Unlock()
 	result := make([]netip.Prefix, 0, len(s.routes))
 	for _, entry := range s.routes {
+		if entry.timer != nil {
+			entry.timer.Stop()
+		}
 		if entry.state == dynamicRouteAdded {
 			result = append(result, entry.prefix)
 		}
 	}
 	s.routes = nil
 	return result
+}
+
+func (s *dynamicRouteSet) resetTimerLocked(entry dynamicRouteEntry) dynamicRouteEntry {
+	if entry.timer != nil {
+		entry.timer.Stop()
+	}
+	entry.generation++
+	if entry.expire == nil {
+		entry.timer = nil
+		return entry
+	}
+	prefix := entry.prefix
+	generation := entry.generation
+	entry.timer = time.AfterFunc(entry.ttl, func() {
+		s.expire(prefix, generation)
+	})
+	return entry
+}
+
+func (s *dynamicRouteSet) expire(prefix netip.Prefix, generation uint64) {
+	key := prefix.String()
+
+	s.mu.Lock()
+	if s.routes == nil {
+		s.mu.Unlock()
+		return
+	}
+	entry, ok := s.routes[key]
+	if !ok || entry.state != dynamicRouteAdded || entry.generation != generation {
+		s.mu.Unlock()
+		return
+	}
+	delete(s.routes, key)
+	expire := entry.expire
+	s.mu.Unlock()
+
+	if expire != nil {
+		_ = expire(prefix)
+	}
 }
 
 func parseDarwinDefaultRoute(out string) (DefaultRoute, error) {

@@ -29,6 +29,27 @@ func (r *recordingRunner) Output(_ context.Context, _ string, _ ...string) ([]by
 	return nil, nil
 }
 
+func (r *recordingRunner) Commands() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.commands...)
+}
+
+func waitForRecordedCommands(t *testing.T, runner *recordingRunner, want []string) {
+	t.Helper()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		if got := runner.Commands(); reflect.DeepEqual(got, want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("commands = %#v, want %#v", runner.Commands(), want)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func TestDarwinDynamicBypassRouteAddDelete(t *testing.T) {
 	runner := &recordingRunner{}
 	manager := DarwinDynamicBypassRoutes{
@@ -49,6 +70,65 @@ func TestDarwinDynamicBypassRouteAddDelete(t *testing.T) {
 	}
 	if !reflect.DeepEqual(runner.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", runner.commands, want)
+	}
+}
+
+func TestDarwinDynamicBypassRouteExpiresAfterTTL(t *testing.T) {
+	runner := &recordingRunner{}
+	manager := DarwinDynamicBypassRoutes{
+		Runner:       runner,
+		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"},
+	}
+
+	if err := manager.AddBypassRoute(context.Background(), netip.MustParsePrefix("198.51.100.44/32"), "dns:git.delimobil.ru", 25*time.Millisecond); err != nil {
+		t.Fatalf("AddBypassRoute returned error: %v", err)
+	}
+
+	want := []string{
+		"route add 198.51.100.44 192.0.2.1",
+		"route delete 198.51.100.44",
+	}
+	waitForRecordedCommands(t, runner, want)
+	if err := manager.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if got := runner.Commands(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("commands after Close = %#v, want %#v", got, want)
+	}
+}
+
+func TestDarwinDynamicBypassRouteRefreshesTTLWithoutDuplicateAdd(t *testing.T) {
+	runner := &recordingRunner{}
+	manager := DarwinDynamicBypassRoutes{
+		Runner:       runner,
+		DefaultRoute: DefaultRoute{Gateway: netip.MustParseAddr("192.0.2.1"), Device: "en0"},
+	}
+
+	prefix := netip.MustParsePrefix("198.51.100.44/32")
+	if err := manager.AddBypassRoute(context.Background(), prefix, "dns:git.delimobil.ru", 100*time.Millisecond); err != nil {
+		t.Fatalf("AddBypassRoute returned error: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := manager.AddBypassRoute(context.Background(), prefix, "dns:git.delimobil.ru", 120*time.Millisecond); err != nil {
+		t.Fatalf("refresh AddBypassRoute returned error: %v", err)
+	}
+
+	wantAddOnly := []string{"route add 198.51.100.44 192.0.2.1"}
+	if got := runner.Commands(); !reflect.DeepEqual(got, wantAddOnly) {
+		t.Fatalf("commands after refresh = %#v, want %#v", got, wantAddOnly)
+	}
+	time.Sleep(70 * time.Millisecond)
+	if got := runner.Commands(); !reflect.DeepEqual(got, wantAddOnly) {
+		t.Fatalf("commands before refreshed TTL = %#v, want %#v", got, wantAddOnly)
+	}
+
+	wantExpired := []string{
+		"route add 198.51.100.44 192.0.2.1",
+		"route delete 198.51.100.44",
+	}
+	waitForRecordedCommands(t, runner, wantExpired)
+	if err := manager.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
 	}
 }
 
