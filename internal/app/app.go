@@ -7,6 +7,19 @@ import (
 	"os"
 )
 
+type UsageError struct {
+	Err                  error
+	BlankLineBeforeUsage bool
+}
+
+func (e UsageError) Error() string {
+	return e.Err.Error()
+}
+
+func (e UsageError) Unwrap() error {
+	return e.Err
+}
+
 type Runtime struct {
 	Stdout io.Writer
 	Stderr io.Writer
@@ -18,17 +31,14 @@ func Run(args []string) error {
 
 func (r Runtime) Run(args []string) error {
 	stdout := r.stdout()
-	stderr := r.stderr()
 
 	opts, err := ParseCLI(args)
 	if err != nil {
-		PrintUsage(stderr)
-		return err
+		return UsageError{Err: err, BlankLineBeforeUsage: true}
 	}
 
 	if opts.ConfigPath == "" {
-		PrintUsage(stderr)
-		return fmt.Errorf("configuration file path is required")
+		return UsageError{Err: fmt.Errorf("configuration file path is required")}
 	}
 
 	fmt.Fprintf(stdout, "[awg-proxy] Parsing configuration: %s...\n", opts.ConfigPath)

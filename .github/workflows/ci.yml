@@ -31,7 +31,7 @@ jobs:
         run: go vet ./...
 
       - name: Build
-        run: go build -v -o awg-proxy .
+        run: go build -v -o awg-proxy ./cmd/awg-proxy
 
       - name: Check binary exists
         run: test -f ./awg-proxy

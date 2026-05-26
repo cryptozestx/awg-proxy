@@ -45,7 +45,7 @@ jobs:
           CGO_ENABLED: 0
         run: |
           go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
-            -o awg-proxy-${{ matrix.suffix }} .
+            -o awg-proxy-${{ matrix.suffix }} ./cmd/awg-proxy
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
