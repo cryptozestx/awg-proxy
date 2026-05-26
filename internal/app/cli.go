@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"awg-proxy/internal/tunnel"
@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 )
 
-type CLIOptions struct {
+type Options struct {
 	Command     string
 	ConfigPath  string
 	SocksPort   int
@@ -21,8 +21,8 @@ type CLIOptions struct {
 	Tunnel      tunnel.Options
 }
 
-func parseCLI(args []string) (CLIOptions, error) {
-	var opts CLIOptions
+func ParseCLI(args []string) (Options, error) {
+	var opts Options
 	if len(args) < 2 {
 		return opts, fmt.Errorf("missing command")
 	}
