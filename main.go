@@ -1,18 +1,14 @@
 package main
 
 import (
+	"awg-proxy/internal/awgnet"
 	"awg-proxy/internal/config"
 	"awg-proxy/internal/proxy"
 	"fmt"
 	"log"
-	"net/netip"
 	"os"
 	"os/signal"
 	"syscall"
-
-	"github.com/amnezia-vpn/amneziawg-go/conn"
-	"github.com/amnezia-vpn/amneziawg-go/device"
-	"github.com/amnezia-vpn/amneziawg-go/tun/netstack"
 )
 
 const version = "1.0.0"
@@ -87,79 +83,33 @@ func main() {
 		return
 	}
 
-	runProxyMode(cfg, opts)
+	if err := runProxyMode(cfg, opts); err != nil {
+		log.Fatalf("Proxy mode error: %v", err)
+	}
 }
 
-func runProxyMode(cfg *config.AWGConfig, opts CLIOptions) {
-	// 2. Parse address sets
-	localAddrs, err := parseAddresses(cfg.Interface.Address)
+func runProxyMode(cfg *config.AWGConfig, opts CLIOptions) error {
+	session, err := awgnet.Start(cfg, opts.Debug)
 	if err != nil {
-		log.Fatalf("Failed to parse interface addresses: %v", err)
+		return err
 	}
-	if len(localAddrs) == 0 {
-		log.Fatalf("No interface IP addresses defined in [Interface]")
-	}
+	defer session.Close()
 
-	dnsAddrs, err := parseAddresses(cfg.Interface.DNS)
+	// 2. Launch proxy servers on top of userspace netstack dialer
+	socksServer, socksActualPort, err := proxy.NewSOCKS5Server(opts.SocksPort, session.Dialer)
 	if err != nil {
-		log.Printf("[Warning] DNS parse issue: %v. Defaulting to 1.1.1.1.", err)
-		dnsAddrs = []netip.Addr{netip.MustParseAddr("1.1.1.1")}
-	}
-	if len(dnsAddrs) == 0 {
-		dnsAddrs = []netip.Addr{netip.MustParseAddr("1.1.1.1")}
-	}
-
-	mtu := cfg.Interface.MTU
-	if mtu <= 0 {
-		mtu = 1420
-	}
-
-	// 3. Create userspace TUN device bound to netstack
-	fmt.Println("[awg-proxy] Initializing userspace network stack...")
-	tunDev, tnet, err := netstack.CreateNetTUN(localAddrs, dnsAddrs, mtu)
-	if err != nil {
-		log.Fatalf("Failed to create userspace network stack: %v", err)
-	}
-
-	// 4. Create WireGuard device
-	logLevel := device.LogLevelSilent
-	if opts.Debug {
-		logLevel = device.LogLevelVerbose
-	}
-	logger := device.NewLogger(logLevel, "[AWG] ")
-	dev := device.NewDevice(tunDev, conn.NewDefaultBind(), logger)
-
-	// 5. Apply configuration via UAPI
-	fmt.Println("[awg-proxy] Setting up secure AmneziaWG connection tunnel...")
-	uapiConf, err := cfg.ToUAPI()
-	if err != nil {
-		log.Fatalf("Failed to construct UAPI config: %v", err)
-	}
-
-	if err := dev.IpcSet(uapiConf); err != nil {
-		log.Fatalf("Failed to configure AmneziaWG interface keys & obfuscation: %v", err)
-	}
-
-	if err := dev.Up(); err != nil {
-		log.Fatalf("Failed to establish tunnel connection: %v", err)
-	}
-	defer dev.Close()
-
-	// 6. Launch proxy servers on top of userspace netstack dialer
-	socksServer, socksActualPort, err := proxy.NewSOCKS5Server(opts.SocksPort, tnet)
-	if err != nil {
-		log.Fatalf("Failed to start SOCKS5 proxy server: %v", err)
+		return fmt.Errorf("failed to start SOCKS5 proxy server: %w", err)
 	}
 	defer socksServer.Close()
 	go socksServer.Start()
 
-	httpServer, httpActualPort, err := proxy.NewHTTPProxyServer(opts.HTTPPort, tnet)
+	httpServer, httpActualPort, err := proxy.NewHTTPProxyServer(opts.HTTPPort, session.Dialer)
 	if err != nil {
-		log.Fatalf("Failed to start HTTP proxy server: %v", err)
+		return fmt.Errorf("failed to start HTTP proxy server: %w", err)
 	}
 	defer httpServer.Close()
 
-	// 7. Route based on command
+	// 3. Route based on command
 	switch opts.Command {
 	case "server":
 		waitForProxyInterrupt(socksActualPort, httpActualPort)
@@ -168,23 +118,25 @@ func runProxyMode(cfg *config.AWGConfig, opts CLIOptions) {
 		// Run a single command under the proxy
 		err := proxy.RunCommand(opts.CommandArgs, socksActualPort, httpActualPort)
 		if err != nil {
-			log.Fatalf("Command returned exit error: %v", err)
+			return fmt.Errorf("command returned exit error: %w", err)
 		}
 
 	case "app":
 		// Run a macOS application under the proxy
 		err := proxy.RunApp(opts.AppTarget, opts.AppArgs, socksActualPort, httpActualPort)
 		if err != nil {
-			log.Fatalf("App returned exit error: %v", err)
+			return fmt.Errorf("app returned exit error: %w", err)
 		}
 
 	case "shell":
 		// Spawns an interactive shell
 		err := proxy.RunShell(socksActualPort, httpActualPort)
 		if err != nil {
-			log.Fatalf("Shell session error: %v", err)
+			return fmt.Errorf("shell session error: %w", err)
 		}
 	}
+
+	return nil
 }
 
 func waitForProxyInterrupt(socksActualPort, httpActualPort int) {
