@@ -51,6 +51,7 @@ type fakeRouteManager struct {
 	defaults   int
 	defaultErr error
 	applyErr   error
+	lastPlan   RoutePlan
 }
 
 func (m *fakeRouteManager) ConfigureInterface(ctx context.Context, ifName string, addr netip.Prefix, mtu int) error {
@@ -68,6 +69,7 @@ func (m *fakeRouteManager) DefaultRoute(ctx context.Context) (DefaultRoute, erro
 
 func (m *fakeRouteManager) Apply(ctx context.Context, ifName string, plan RoutePlan, defaultRoute DefaultRoute, cleanup *CleanupStack) error {
 	m.calls = append(m.calls, "routes:"+ifName)
+	m.lastPlan = plan
 	cleanup.Add("routes", func() error {
 		m.calls = append(m.calls, "cleanup-routes")
 		return nil
@@ -159,6 +161,24 @@ func TestRunTunnelNoDNSSkipsDNSManager(t *testing.T) {
 
 	if len(dns.calls) != 0 {
 		t.Fatalf("DNS calls = %#v, want none", dns.calls)
+	}
+}
+
+func TestRunTunnelLoadsRulesAndPassesStaticBypassToRoutes(t *testing.T) {
+	dev := &fakeTunnelDevice{name: "utun99"}
+	routes := &fakeRouteManager{}
+	dns := &fakeDNSManager{}
+	deps := fakeTunnelDeps(dev, routes, dns)
+	path := writeTempRules(t, `exclude_ip = 198.51.100.44`)
+
+	err := RunTunnelWithDeps(context.Background(), validTunnelConfig(), TunnelOptions{RulesPath: path}, deps)
+	if err != nil {
+		t.Fatalf("RunTunnelWithDeps returned error: %v", err)
+	}
+
+	want := []netip.Prefix{netip.MustParsePrefix("198.51.100.44/32")}
+	if !reflect.DeepEqual(routes.lastPlan.StaticBypassCIDRs, want) {
+		t.Fatalf("StaticBypassCIDRs = %v, want %v", routes.lastPlan.StaticBypassCIDRs, want)
 	}
 }
 

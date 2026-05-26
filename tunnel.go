@@ -120,6 +120,14 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 		}
 	}
 
+	rules, err := LoadTunnelRules(opts.RulesPath)
+	if err != nil {
+		return err
+	}
+	if opts.NoDNS && len(rules.DomainRules) > 0 {
+		return fmt.Errorf("domain bypass rules require tunnel DNS control; remove --no-dns or remove exclude_domain rules")
+	}
+
 	mtu := cfg.Interface.MTU
 	if mtu <= 0 {
 		mtu = 1420
@@ -156,7 +164,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *AWGConfig, opts TunnelOptions, 
 		return err
 	}
 
-	plan := BuildFullTunnelRoutePlan(endpoint)
+	plan := BuildTunnelRoutePlan(endpoint, rules)
 	if err := deps.RouteManager.Apply(ctx, dev.Name(), plan, defaultRoute, cleanup); err != nil {
 		return err
 	}
