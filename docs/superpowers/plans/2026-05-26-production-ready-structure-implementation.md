@@ -1600,13 +1600,7 @@ git commit -m "refactor: add app package and thin entrypoint"
 
 - [ ] **Step 1: Update build instructions**
 
-In `README.md` and `README_RU.md`, replace root build command:
-
-```bash
-go build -o awg-proxy .
-```
-
-with:
+In `README.md` and `README_RU.md`, replace the legacy root-package build command with:
 
 ```bash
 go build -o awg-proxy ./cmd/awg-proxy

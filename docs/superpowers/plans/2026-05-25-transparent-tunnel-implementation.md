@@ -2008,7 +2008,7 @@ Expected: PASS.
 Run:
 
 ```bash
-go build -o awg-proxy .
+go build -o awg-proxy ./cmd/awg-proxy
 ```
 
 Expected: command exits successfully and updates `./awg-proxy`.

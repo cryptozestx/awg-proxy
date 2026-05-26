@@ -43,12 +43,6 @@ cd awg-proxy
 go build -o awg-proxy ./cmd/awg-proxy
 ```
 
-### Quick one-liner
-
-```bash
-go install github.com/cryptozestx/awg-proxy@latest
-```
-
 ---
 
 ## Usage
