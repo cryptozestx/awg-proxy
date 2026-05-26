@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"context"
@@ -170,7 +170,7 @@ func (s *SOCKS5Server) sendReply(client net.Conn, rep byte, bindIP net.IP, bindP
 	reply := make([]byte, 0, 4+len(ipBytes)+2)
 	reply = append(reply, 0x05, rep, 0x00, atyp)
 	reply = append(reply, ipBytes...)
-	
+
 	portBytes := make([]byte, 2)
 	binary.BigEndian.PutUint16(portBytes, bindPort)
 	reply = append(reply, portBytes...)
@@ -179,7 +179,7 @@ func (s *SOCKS5Server) sendReply(client net.Conn, rep byte, bindIP net.IP, bindP
 }
 
 // Helpers to parse netip addresses
-func parseAddresses(addrs []string) ([]netip.Addr, error) {
+func ParseAddresses(addrs []string) ([]netip.Addr, error) {
 	var result []netip.Addr
 	for _, a := range addrs {
 		// Strip CIDR mask if present

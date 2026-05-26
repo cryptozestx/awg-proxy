@@ -2,6 +2,7 @@ package main
 
 import (
 	"awg-proxy/internal/config"
+	"awg-proxy/internal/proxy"
 	"fmt"
 	"log"
 	"net/netip"
@@ -91,7 +92,7 @@ func main() {
 
 func runProxyMode(cfg *config.AWGConfig, opts CLIOptions) {
 	// 2. Parse address sets
-	localAddrs, err := parseAddresses(cfg.Interface.Address)
+	localAddrs, err := proxy.ParseAddresses(cfg.Interface.Address)
 	if err != nil {
 		log.Fatalf("Failed to parse interface addresses: %v", err)
 	}
@@ -99,7 +100,7 @@ func runProxyMode(cfg *config.AWGConfig, opts CLIOptions) {
 		log.Fatalf("No interface IP addresses defined in [Interface]")
 	}
 
-	dnsAddrs, err := parseAddresses(cfg.Interface.DNS)
+	dnsAddrs, err := proxy.ParseAddresses(cfg.Interface.DNS)
 	if err != nil {
 		log.Printf("[Warning] DNS parse issue: %v. Defaulting to 1.1.1.1.", err)
 		dnsAddrs = []netip.Addr{netip.MustParseAddr("1.1.1.1")}
@@ -145,14 +146,14 @@ func runProxyMode(cfg *config.AWGConfig, opts CLIOptions) {
 	defer dev.Close()
 
 	// 6. Launch proxy servers on top of userspace netstack dialer
-	socksServer, socksActualPort, err := NewSOCKS5Server(opts.SocksPort, tnet)
+	socksServer, socksActualPort, err := proxy.NewSOCKS5Server(opts.SocksPort, tnet)
 	if err != nil {
 		log.Fatalf("Failed to start SOCKS5 proxy server: %v", err)
 	}
 	defer socksServer.Close()
 	go socksServer.Start()
 
-	httpServer, httpActualPort, err := NewHTTPProxyServer(opts.HTTPPort, tnet)
+	httpServer, httpActualPort, err := proxy.NewHTTPProxyServer(opts.HTTPPort, tnet)
 	if err != nil {
 		log.Fatalf("Failed to start HTTP proxy server: %v", err)
 	}
@@ -165,21 +166,21 @@ func runProxyMode(cfg *config.AWGConfig, opts CLIOptions) {
 
 	case "run":
 		// Run a single command under the proxy
-		err := RunCommand(opts.CommandArgs, socksActualPort, httpActualPort)
+		err := proxy.RunCommand(opts.CommandArgs, socksActualPort, httpActualPort)
 		if err != nil {
 			log.Fatalf("Command returned exit error: %v", err)
 		}
 
 	case "app":
 		// Run a macOS application under the proxy
-		err := RunApp(opts.AppTarget, opts.AppArgs, socksActualPort, httpActualPort)
+		err := proxy.RunApp(opts.AppTarget, opts.AppArgs, socksActualPort, httpActualPort)
 		if err != nil {
 			log.Fatalf("App returned exit error: %v", err)
 		}
 
 	case "shell":
 		// Spawns an interactive shell
-		err := RunShell(socksActualPort, httpActualPort)
+		err := proxy.RunShell(socksActualPort, httpActualPort)
 		if err != nil {
 			log.Fatalf("Shell session error: %v", err)
 		}

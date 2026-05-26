@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"context"
@@ -119,7 +119,7 @@ func (p *HTTPProxyServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Construct the target URL request
 	r.RequestURI = "" // Must be empty in client requests
-	
+
 	// Strip hop-by-hop headers
 	stripHopByHop(r.Header)
 
