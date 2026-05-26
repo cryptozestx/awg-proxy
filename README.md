@@ -40,7 +40,7 @@ Requires [Go 1.24+](https://go.dev/dl/).
 ```bash
 git clone https://github.com/cryptozestx/awg-proxy.git
 cd awg-proxy
-go build -o awg-proxy .
+go build -o awg-proxy ./cmd/awg-proxy
 ```
 
 ### Quick one-liner
