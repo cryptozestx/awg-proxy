@@ -133,6 +133,24 @@ sudo ./awg-proxy tunnel -c my_vpn.conf --no-dns
 
 The tunnel mode resolves the peer endpoint before changing routes, rewrites the device endpoint to the resolved IPv4 address, adds a host bypass route for that endpoint, then adds `0.0.0.0/1` and `128.0.0.0/1` through the TUN interface. DNS from `[Interface] DNS` is applied by default and must contain IP address entries. Use `--no-dns` only when you accept existing DNS behavior.
 
+#### Tunnel bypass rules
+
+Use `--rules` to route selected destinations outside the tunnel:
+
+```bash
+sudo ./awg-proxy tunnel -c my_vpn.conf --rules tunnel.rules
+```
+
+Example `tunnel.rules`:
+
+```conf
+exclude_ip = 203.0.113.10
+exclude_cidr = 198.51.100.0/24
+exclude_domain = *.delimobil.*
+```
+
+`exclude_ip` and `exclude_cidr` add direct routes through the original default gateway. `exclude_domain` requires tunnel DNS control; it is incompatible with `--no-dns`. Domain rules work only for applications that use system DNS. Applications using DNS-over-HTTPS or a private resolver may not be bypassed by domain rules.
+
 ---
 
 ## Configuration
@@ -164,6 +182,7 @@ Options:
   -d, --debug        Verbose tunnel debug logging
   --dry-run          Print tunnel changes without applying them
   --no-dns           Do not change system DNS in tunnel mode
+  --rules            Path to tunnel bypass rules file
 ```
 
 ---
