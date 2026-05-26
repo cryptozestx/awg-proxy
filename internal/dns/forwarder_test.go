@@ -1,4 +1,4 @@
-package main
+package dns
 
 import (
 	"context"
@@ -134,7 +134,7 @@ func cnameResponseHandler(t *testing.T, queryName string, cnameName string, ip s
 func TestDomainBypassRuntimeAddsRoutesForMatchingAnswers(t *testing.T) {
 	runtime := NewDomainBypassRuntime()
 	routes := &fakeDynamicBypassRoutes{}
-	rules := TunnelRules{DomainRules: []DomainRule{{Pattern: "*.delimobil.*"}}}
+	rules := []DomainRule{{Pattern: "*.delimobil.*"}}
 	answer := DNSAnswer{
 		Name: "git.delimobil.ru",
 		A:    []netip.Addr{netip.MustParseAddr("198.51.100.44")},
@@ -161,7 +161,7 @@ func TestDomainBypassRuntimeAddsRoutesForMatchingAnswers(t *testing.T) {
 func TestDomainBypassRuntimeIgnoresNonMatchingAnswers(t *testing.T) {
 	runtime := NewDomainBypassRuntime()
 	routes := &fakeDynamicBypassRoutes{}
-	rules := TunnelRules{DomainRules: []DomainRule{{Pattern: "*.delimobil.*"}}}
+	rules := []DomainRule{{Pattern: "*.delimobil.*"}}
 	answer := DNSAnswer{
 		Name: "openai.com",
 		A:    []netip.Addr{netip.MustParseAddr("198.51.100.44")},
@@ -182,7 +182,7 @@ func TestDomainBypassRuntimeForwarderHandlesARecord(t *testing.T) {
 	defer stopUpstream()
 
 	routes := &fakeDynamicBypassRoutes{}
-	rules := TunnelRules{DomainRules: []DomainRule{{Pattern: "*.delimobil.*"}}}
+	rules := []DomainRule{{Pattern: "*.delimobil.*"}}
 	runtime := NewDomainBypassRuntime()
 	if err := runtime.Start(context.Background(), DomainBypassConfig{
 		ListenAddr: "127.0.0.1:0",
@@ -251,7 +251,7 @@ func TestDomainBypassRuntimeForwarderHandlesCNAMEARecord(t *testing.T) {
 	defer stopUpstream()
 
 	routes := &fakeDynamicBypassRoutes{}
-	rules := TunnelRules{DomainRules: []DomainRule{{Pattern: "*.delimobil.*"}}}
+	rules := []DomainRule{{Pattern: "*.delimobil.*"}}
 	runtime := NewDomainBypassRuntime()
 	if err := runtime.Start(context.Background(), DomainBypassConfig{
 		ListenAddr: "127.0.0.1:0",
@@ -298,7 +298,7 @@ func TestCollectDNSAAnswersForQuestionsIgnoresUnrelatedARecord(t *testing.T) {
 		},
 		A: net.ParseIP("198.51.100.44").To4(),
 	})
-	rules := TunnelRules{DomainRules: []DomainRule{{Pattern: "*.delimobil.*"}}}
+	rules := []DomainRule{{Pattern: "*.delimobil.*"}}
 
 	answers := collectDNSAAnswersForQuestions(req, resp, rules)
 	if len(answers) != 0 {
@@ -319,7 +319,7 @@ func TestDomainBypassRuntimeNilDNSHelpersDoNotPanic(t *testing.T) {
 		}
 	}()
 
-	if answers := collectDNSAAnswersForQuestions(nil, nil, TunnelRules{}); len(answers) != 0 {
+	if answers := collectDNSAAnswersForQuestions(nil, nil, nil); len(answers) != 0 {
 		t.Fatalf("answers = %v, want empty", answers)
 	}
 }

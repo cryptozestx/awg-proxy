@@ -1,8 +1,9 @@
 //go:build linux
 
-package main
+package dns
 
 import (
+	"awg-proxy/internal/platform"
 	"context"
 	"fmt"
 	"os"
@@ -10,11 +11,15 @@ import (
 	"strings"
 )
 
-type LinuxDNSManager struct {
+type LinuxManager struct {
 	ResolvConfPath string
 }
 
-func (m LinuxDNSManager) Apply(ctx context.Context, servers []string, cleanup *CleanupStack) error {
+func NewPlatformManager(_ platform.CommandRunner) Manager {
+	return LinuxManager{}
+}
+
+func (m LinuxManager) Apply(ctx context.Context, servers []string, cleanup Cleanup) error {
 	path := m.ResolvConfPath
 	if path == "" {
 		path = "/etc/resolv.conf"

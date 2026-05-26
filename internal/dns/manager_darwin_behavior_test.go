@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package dns
 
 import (
 	"awg-proxy/internal/platform"
@@ -49,11 +49,11 @@ func (r *fakeDNSCommandRunner) Output(ctx context.Context, name string, args ...
 	return out, nil
 }
 
-func TestDarwinDNSManagerApplyRecordsCommandsAndCleanupRestores(t *testing.T) {
+func TestDarwinManagerApplyRecordsCommandsAndCleanupRestores(t *testing.T) {
 	runner := newFakeDarwinDNSRunner()
-	cleanup := NewCleanupStack()
+	cleanup := newCleanupStack()
 
-	if err := (DarwinDNSManager{Runner: runner}).Apply(context.Background(), []string{"1.1.1.1", "8.8.8.8"}, cleanup); err != nil {
+	if err := (DarwinManager{Runner: runner}).Apply(context.Background(), []string{"1.1.1.1", "8.8.8.8"}, cleanup); err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
 	if err := cleanup.Run(); err != nil {
@@ -74,13 +74,13 @@ func TestDarwinDNSManagerApplyRecordsCommandsAndCleanupRestores(t *testing.T) {
 	}
 }
 
-func TestDarwinDNSManagerSetFailureLeavesCleanupRegisteredWithFreshContext(t *testing.T) {
+func TestDarwinManagerSetFailureLeavesCleanupRegisteredWithFreshContext(t *testing.T) {
 	runner := newFakeDarwinDNSRunner()
 	runner.failRunAt = 2
-	cleanup := NewCleanupStack()
+	cleanup := newCleanupStack()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	err := (DarwinDNSManager{Runner: runner}).Apply(ctx, []string{"1.1.1.1"}, cleanup)
+	err := (DarwinManager{Runner: runner}).Apply(ctx, []string{"1.1.1.1"}, cleanup)
 	if err == nil {
 		t.Fatal("Apply() error = nil, want set failure")
 	}
@@ -106,12 +106,12 @@ func TestDarwinDNSManagerSetFailureLeavesCleanupRegisteredWithFreshContext(t *te
 	}
 }
 
-func TestDarwinDNSManagerCleanupRunsAfterApplyContextCanceled(t *testing.T) {
+func TestDarwinManagerCleanupRunsAfterApplyContextCanceled(t *testing.T) {
 	runner := newFakeDarwinDNSRunner()
-	cleanup := NewCleanupStack()
+	cleanup := newCleanupStack()
 	ctx, cancel := context.WithCancel(context.Background())
 
-	if err := (DarwinDNSManager{Runner: runner}).Apply(ctx, []string{"1.1.1.1"}, cleanup); err != nil {
+	if err := (DarwinManager{Runner: runner}).Apply(ctx, []string{"1.1.1.1"}, cleanup); err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
 	cancel()
@@ -124,14 +124,14 @@ func TestDarwinDNSManagerCleanupRunsAfterApplyContextCanceled(t *testing.T) {
 	}
 }
 
-func TestDarwinDNSManagerCleanupAttemptsAllRestoresAfterFailure(t *testing.T) {
+func TestDarwinManagerCleanupAttemptsAllRestoresAfterFailure(t *testing.T) {
 	runner := newFakeDarwinDNSRunner()
 	runner.failRunAt = 4
 	runner.outputs["networksetup -listallnetworkservices"] = []byte("An asterisk (*) denotes that a network service is disabled.\nWi-Fi\nUSB LAN $(bad) 'quoted'\n")
 	runner.outputs["networksetup -getdnsservers USB LAN $(bad) 'quoted'"] = []byte("9.9.9.9\n149.112.112.112\n")
-	cleanup := NewCleanupStack()
+	cleanup := newCleanupStack()
 
-	if err := (DarwinDNSManager{Runner: runner}).Apply(context.Background(), []string{"1.1.1.1"}, cleanup); err != nil {
+	if err := (DarwinManager{Runner: runner}).Apply(context.Background(), []string{"1.1.1.1"}, cleanup); err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
 

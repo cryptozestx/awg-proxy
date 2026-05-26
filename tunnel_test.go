@@ -1,6 +1,7 @@
 package main
 
 import (
+	dnsruntime "awg-proxy/internal/dns"
 	"awg-proxy/internal/platform"
 	"awg-proxy/internal/routing"
 	"context"
@@ -92,7 +93,7 @@ type fakeDNSManager struct {
 	servers      []string
 }
 
-func (m *fakeDNSManager) Apply(ctx context.Context, servers []string, cleanup *CleanupStack) error {
+func (m *fakeDNSManager) Apply(ctx context.Context, servers []string, cleanup dnsruntime.Cleanup) error {
 	m.calls = append(m.calls, "dns")
 	if m.orderedCalls != nil {
 		*m.orderedCalls = append(*m.orderedCalls, "dns")
@@ -110,11 +111,11 @@ func (m *fakeDNSManager) Apply(ctx context.Context, servers []string, cleanup *C
 
 type fakeDomainRuntime struct {
 	calls   *[]string
-	config  DomainBypassConfig
-	onStart func(context.Context, DomainBypassConfig) error
+	config  dnsruntime.DomainBypassConfig
+	onStart func(context.Context, dnsruntime.DomainBypassConfig) error
 }
 
-func (r *fakeDomainRuntime) Start(ctx context.Context, config DomainBypassConfig) error {
+func (r *fakeDomainRuntime) Start(ctx context.Context, config dnsruntime.DomainBypassConfig) error {
 	*r.calls = append(*r.calls, "domain-runtime-start")
 	r.config = config
 	if r.onStart != nil {
@@ -134,7 +135,7 @@ func (r *fakeDomainRuntime) Close() error {
 	return nil
 }
 
-func (r *fakeDomainRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes routing.DynamicBypassRoutes) error {
+func (r *fakeDomainRuntime) HandleAnswer(ctx context.Context, rules []dnsruntime.DomainRule, answer dnsruntime.DNSAnswer, routes dnsruntime.DynamicRouteAdder) error {
 	return ctx.Err()
 }
 
@@ -248,7 +249,7 @@ func TestRunTunnelStartsDomainRuntimeBeforeApplyingDNS(t *testing.T) {
 	dns.orderedCalls = &calls
 	runtime := &fakeDomainRuntime{calls: &calls}
 	dynamicRoutes := &fakeDynamicRoutes{calls: &calls}
-	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
+	deps.DomainRuntimeFactory = func() dnsruntime.DomainBypassRuntime {
 		return runtime
 	}
 	deps.DynamicRoutesFactory = func(routing.DefaultRoute) routing.DynamicBypassRoutes {
@@ -274,8 +275,8 @@ func TestRunTunnelStartsDomainRuntimeBeforeApplyingDNS(t *testing.T) {
 	if runtime.config.Upstream != "1.1.1.1:53" {
 		t.Fatalf("Upstream = %q, want 1.1.1.1:53", runtime.config.Upstream)
 	}
-	if len(runtime.config.Rules.DomainRules) != 1 || runtime.config.Rules.DomainRules[0].Pattern != "*.delimobil.*" {
-		t.Fatalf("DomainRules = %#v, want *.delimobil.*", runtime.config.Rules.DomainRules)
+	if len(runtime.config.Rules) != 1 || runtime.config.Rules[0].Pattern != "*.delimobil.*" {
+		t.Fatalf("DomainRules = %#v, want *.delimobil.*", runtime.config.Rules)
 	}
 	if runtime.config.Routes == nil {
 		t.Fatalf("Routes is nil")
@@ -296,11 +297,11 @@ func TestRunTunnelDomainRoutesSkipStaticCoveredPrefix(t *testing.T) {
 	deps := fakeTunnelDeps(dev, routes, dns)
 	var calls []string
 	runtime := &fakeDomainRuntime{calls: &calls}
-	runtime.onStart = func(ctx context.Context, config DomainBypassConfig) error {
+	runtime.onStart = func(ctx context.Context, config dnsruntime.DomainBypassConfig) error {
 		return config.Routes.AddBypassRoute(ctx, netip.MustParsePrefix("198.51.100.44/32"), "dns:api.delimobil.test", time.Minute)
 	}
 	dynamicRoutes := &fakeDynamicRoutes{calls: &calls}
-	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
+	deps.DomainRuntimeFactory = func() dnsruntime.DomainBypassRuntime {
 		return runtime
 	}
 	deps.DynamicRoutesFactory = func(routing.DefaultRoute) routing.DynamicBypassRoutes {
@@ -401,7 +402,7 @@ func TestRunTunnelDryRunDomainRulesDoNotUseInjectedRuntimeFactories(t *testing.T
 		Fallback:     dryRunDefaultRouteFallback(),
 	}
 	deps.DNSManager = dryRunDNSManager{Recorder: recorder}
-	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
+	deps.DomainRuntimeFactory = func() dnsruntime.DomainBypassRuntime {
 		panic("dry-run called injected domain runtime factory")
 	}
 	deps.DynamicRoutesFactory = func(routing.DefaultRoute) routing.DynamicBypassRoutes {
@@ -431,7 +432,7 @@ func TestRunTunnelDomainRuntimeUsesBracketedIPv6DNSUpstream(t *testing.T) {
 	var calls []string
 	runtime := &fakeDomainRuntime{calls: &calls}
 	dynamicRoutes := &fakeDynamicRoutes{calls: &calls}
-	deps.DomainRuntimeFactory = func() DomainBypassRuntime {
+	deps.DomainRuntimeFactory = func() dnsruntime.DomainBypassRuntime {
 		return runtime
 	}
 	deps.DynamicRoutesFactory = func(routing.DefaultRoute) routing.DynamicBypassRoutes {

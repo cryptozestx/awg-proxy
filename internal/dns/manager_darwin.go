@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package dns
 
 import (
 	"awg-proxy/internal/platform"
@@ -10,11 +10,15 @@ import (
 	"strings"
 )
 
-type DarwinDNSManager struct {
+type DarwinManager struct {
 	Runner platform.CommandRunner
 }
 
-func (m DarwinDNSManager) Apply(ctx context.Context, servers []string, cleanup *CleanupStack) error {
+func NewPlatformManager(runner platform.CommandRunner) Manager {
+	return DarwinManager{Runner: runner}
+}
+
+func (m DarwinManager) Apply(ctx context.Context, servers []string, cleanup Cleanup) error {
 	out, err := m.Runner.Output(ctx, "networksetup", "-listallnetworkservices")
 	if err != nil {
 		return fmt.Errorf("list network services: %w", err)

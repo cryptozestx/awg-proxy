@@ -2,6 +2,7 @@ package main
 
 import (
 	"awg-proxy/internal/config"
+	dnsruntime "awg-proxy/internal/dns"
 	"awg-proxy/internal/platform"
 	"awg-proxy/internal/routing"
 	"context"
@@ -21,8 +22,8 @@ const endpointLookupTimeout = 10 * time.Second
 type TunnelDeps struct {
 	DeviceFactory        TunnelDeviceFactory
 	RouteManager         routing.Manager
-	DNSManager           DNSManager
-	DomainRuntimeFactory func() DomainBypassRuntime
+	DNSManager           dnsruntime.Manager
+	DomainRuntimeFactory func() dnsruntime.DomainBypassRuntime
 	DynamicRoutesFactory routing.DynamicBypassRouteFactory
 	Lookup               func(string) ([]netip.Addr, error)
 	Wait                 func(context.Context) error
@@ -57,7 +58,7 @@ func RunTunnel(cfg *config.AWGConfig, opts TunnelOptions) error {
 	deps := TunnelDeps{
 		DeviceFactory: AWGTunnelDeviceFactory{},
 		RouteManager:  routing.NewPlatformManager(platform.ExecRunner{}),
-		DNSManager:    NewPlatformDNSManager(platform.ExecRunner{}),
+		DNSManager:    dnsruntime.NewPlatformManager(platform.ExecRunner{}),
 		Lookup:        netipLookup,
 		Wait:          waitForSignal,
 	}
@@ -95,7 +96,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOp
 		deps.Wait = func(context.Context) error {
 			return nil
 		}
-		deps.DomainRuntimeFactory = func() DomainBypassRuntime {
+		deps.DomainRuntimeFactory = func() dnsruntime.DomainBypassRuntime {
 			return dryRunDomainBypassRuntime{Recorder: recorder}
 		}
 		deps.DynamicRoutesFactory = func(routing.DefaultRoute) routing.DynamicBypassRoutes {
@@ -117,7 +118,7 @@ func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOp
 		return fmt.Errorf("tunnel dependency Wait is nil")
 	}
 	if deps.DomainRuntimeFactory == nil {
-		deps.DomainRuntimeFactory = NewDomainBypassRuntime
+		deps.DomainRuntimeFactory = dnsruntime.NewDomainBypassRuntime
 	}
 	if deps.DynamicRoutesFactory == nil {
 		deps.DynamicRoutesFactory = routing.NewPlatformDynamicBypassRoutes
@@ -216,10 +217,10 @@ func RunTunnelWithDeps(ctx context.Context, cfg *config.AWGConfig, opts TunnelOp
 		}
 		cleanup.Add("delete dynamic domain bypass routes", dynamicRoutes.Close)
 		runtime := deps.DomainRuntimeFactory()
-		if err := runtime.Start(ctx, DomainBypassConfig{
+		if err := runtime.Start(ctx, dnsruntime.DomainBypassConfig{
 			ListenAddr: "127.0.0.1:53",
 			Upstream:   net.JoinHostPort(dnsServers[0], "53"),
-			Rules:      rules,
+			Rules:      rules.DNSDomainRules(),
 			Routes:     dynamicRoutes,
 		}); err != nil {
 			return err
@@ -472,7 +473,7 @@ type dryRunDomainBypassRuntime struct {
 	Recorder DryRunRecorder
 }
 
-func (r dryRunDomainBypassRuntime) Start(ctx context.Context, config DomainBypassConfig) error {
+func (r dryRunDomainBypassRuntime) Start(ctx context.Context, config dnsruntime.DomainBypassConfig) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -493,7 +494,7 @@ func (r dryRunDomainBypassRuntime) Close() error {
 	return nil
 }
 
-func (r dryRunDomainBypassRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes routing.DynamicBypassRoutes) error {
+func (r dryRunDomainBypassRuntime) HandleAnswer(ctx context.Context, rules []dnsruntime.DomainRule, answer dnsruntime.DNSAnswer, routes dnsruntime.DynamicRouteAdder) error {
 	return ctx.Err()
 }
 
@@ -522,7 +523,7 @@ type dryRunDNSManager struct {
 	Recorder DryRunRecorder
 }
 
-func (m dryRunDNSManager) Apply(ctx context.Context, servers []string, cleanup *CleanupStack) error {
+func (m dryRunDNSManager) Apply(ctx context.Context, servers []string, cleanup dnsruntime.Cleanup) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

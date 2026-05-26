@@ -1,7 +1,6 @@
-package main
+package dns
 
 import (
-	"awg-proxy/internal/routing"
 	"context"
 	"errors"
 	"fmt"
@@ -20,8 +19,8 @@ const minDomainBypassTTL = 10 * time.Minute
 type DomainBypassConfig struct {
 	ListenAddr string
 	Upstream   string
-	Rules      TunnelRules
-	Routes     routing.DynamicBypassRoutes
+	Rules      []DomainRule
+	Routes     DynamicRouteAdder
 }
 
 type DNSAnswer struct {
@@ -44,7 +43,7 @@ type DomainBypassRuntime interface {
 	Start(ctx context.Context, config DomainBypassConfig) error
 	Addr() string
 	Close() error
-	HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes routing.DynamicBypassRoutes) error
+	HandleAnswer(ctx context.Context, rules []DomainRule, answer DNSAnswer, routes DynamicRouteAdder) error
 }
 
 type DNSDomainBypassRuntime struct {
@@ -215,11 +214,11 @@ func isExpectedDNSServerClose(err error) bool {
 		strings.Contains(err.Error(), "Server closed")
 }
 
-func (r *DNSDomainBypassRuntime) HandleAnswer(ctx context.Context, rules TunnelRules, answer DNSAnswer, routes routing.DynamicBypassRoutes) error {
+func (r *DNSDomainBypassRuntime) HandleAnswer(ctx context.Context, rules []DomainRule, answer DNSAnswer, routes DynamicRouteAdder) error {
 	if routes == nil {
 		return nil
 	}
-	if !domainRulesMatch(rules.DomainRules, answer.Name) {
+	if !domainRulesMatch(rules, answer.Name) {
 		return nil
 	}
 	ttl := answer.TTL
@@ -235,15 +234,6 @@ func (r *DNSDomainBypassRuntime) HandleAnswer(ctx context.Context, rules TunnelR
 		}
 	}
 	return nil
-}
-
-func domainRulesMatch(rules []DomainRule, host string) bool {
-	for _, rule := range rules {
-		if rule.Matches(host) {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *DNSDomainBypassRuntime) handleDNS(w dns.ResponseWriter, req *dns.Msg) {
@@ -280,7 +270,7 @@ func (r *DNSDomainBypassRuntime) handleDNS(w dns.ResponseWriter, req *dns.Msg) {
 	_ = w.WriteMsg(resp)
 }
 
-func collectDNSAAnswersForQuestions(req *dns.Msg, resp *dns.Msg, rules TunnelRules) []DNSAnswer {
+func collectDNSAAnswersForQuestions(req *dns.Msg, resp *dns.Msg, rules []DomainRule) []DNSAnswer {
 	if req == nil || resp == nil {
 		return nil
 	}
@@ -310,7 +300,7 @@ func collectDNSAAnswersForQuestions(req *dns.Msg, resp *dns.Msg, rules TunnelRul
 	seenQuestions := make(map[string]bool)
 	for _, question := range req.Question {
 		queryName := normalizeDomainPattern(question.Name)
-		if queryName == "" || seenQuestions[queryName] || !domainRulesMatch(rules.DomainRules, queryName) {
+		if queryName == "" || seenQuestions[queryName] || !domainRulesMatch(rules, queryName) {
 			continue
 		}
 		seenQuestions[queryName] = true
