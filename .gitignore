@@ -35,3 +35,7 @@ build/
 # Test coverage
 coverage.html
 coverage.out
+
+# Local agent planning artifacts
+docs/superpowers/*
+tunnel.rules
