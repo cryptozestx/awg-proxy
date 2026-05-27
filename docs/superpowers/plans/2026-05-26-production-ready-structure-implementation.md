@@ -20,49 +20,49 @@ Baseline test note: `go test ./...` may fail in this sandbox on DNS tests that b
 
 ## Target File Map
 
-- Create: `cmd/awg-proxy/main.go`  
+- Create: `cmd/awg-proxy/main.go`
   Thin entrypoint. Calls `app.Run(os.Args)`, prints fatal errors, exits once.
 
-- Create: `internal/app/cli.go`  
+- Create: `internal/app/cli.go`
   Contains `Options`, `TunnelOptions`, `ParseCLI(args []string) (Options, error)`, and default config resolution.
 
-- Create: `internal/app/usage.go`  
+- Create: `internal/app/usage.go`
   Contains usage output currently in `printUsage`.
 
-- Create: `internal/app/app.go`  
+- Create: `internal/app/app.go`
   Contains `Run(args []string) error`, config loading, command dispatch.
 
-- Create: `internal/app/proxy_mode.go`  
+- Create: `internal/app/proxy_mode.go`
   Orchestrates proxy modes with `config`, `awgnet`, and `proxy`.
 
-- Create: `internal/app/tunnel_mode.go`  
+- Create: `internal/app/tunnel_mode.go`
   Orchestrates tunnel mode with `tunnel.Run`.
 
-- Create: `internal/config/awg.go`  
+- Create: `internal/config/awg.go`
   Contains `AWGConfig`, `InterfaceConfig`, `PeerConfig`, `Parse(path string) (*AWGConfig, error)`, and key conversion helpers.
 
-- Create: `internal/config/uapi.go`  
+- Create: `internal/config/uapi.go`
   Contains `func (c *AWGConfig) ToUAPI() (string, error)`.
 
-- Create: `internal/platform/command_runner.go`  
+- Create: `internal/platform/command_runner.go`
   Contains `CommandRunner`, `ExecRunner`, `DryRunRunner`, and `CommandString`.
 
-- Create: `internal/awgnet/userspace.go`  
+- Create: `internal/awgnet/userspace.go`
   Contains proxy-mode userspace netstack and AmneziaWG device lifecycle.
 
-- Create: `internal/proxy/socks.go`, `internal/proxy/http.go`, `internal/proxy/runner.go`, `internal/proxy/app_darwin.go`  
+- Create: `internal/proxy/socks.go`, `internal/proxy/http.go`, `internal/proxy/runner.go`, `internal/proxy/app_darwin.go`
   Owns SOCKS5, HTTP, command/shell runner, and macOS app launcher.
 
-- Create: `internal/tunnel/service.go`, `device.go`, `config.go`, `rules.go`, `dryrun.go`, `cleanup.go`  
+- Create: `internal/tunnel/service.go`, `device.go`, `config.go`, `rules.go`, `dryrun.go`, `cleanup.go`
   Owns transparent tunnel orchestration, native TUN device, tunnel config validation, rules, dry-run substitutes, cleanup stack.
 
-- Create: `internal/routing/manager.go`, `policy.go`, `builders.go`, `platform_darwin.go`, `platform_linux.go`  
+- Create: `internal/routing/manager.go`, `policy.go`, `builders.go`, `platform_darwin.go`, `platform_linux.go`
   Owns route plans, platform route managers, static/dynamic bypass routes, default route parsing, route command builders.
 
-- Create: `internal/dns/manager.go`, `manager_darwin.go`, `manager_linux.go`, `manager_darwin_parse.go`, `forwarder.go`, `rules.go`  
+- Create: `internal/dns/manager.go`, `manager_darwin.go`, `manager_linux.go`, `manager_darwin_parse.go`, `forwarder.go`, `rules.go`
   Owns DNS managers, DNS forwarder, and DNS-domain rule matching used by the forwarder.
 
-- Modify: `README.md`, `README_RU.md`  
+- Modify: `README.md`, `README_RU.md`
   Replace root build command with `go build -o awg-proxy ./cmd/awg-proxy`.
 
 - Delete from root after moves: all root production `*.go` files.
